@@ -1,153 +1,56 @@
-{
-  "asset_descriptions": {
-    "SPY": "S&P 500 Large-Cap ETF",
-    "QQQ": "Nasdaq-100 Growth ETF",
-    "DJIA": "Dow Jones Industrial Average ETF",
-    "EMXC": "Emerging Markets ex-China ETF",
-    "VEA": "Vanguard Developed Markets ETF",
-    "NVDA": "NVIDIA Corporation (AI/Semiconductors)",
-    "AAPL": "Apple Inc. (Consumer Tech)",
-    "MSFT": "Microsoft Corporation (Cloud/Software)",
-    "AMZN": "Amazon.com Inc. (E-Commerce/Cloud)",
-    "GOOGL": "Alphabet Inc. (Search/AI)",
-    "META": "Meta Platforms Inc. (Social Media/AI)",
-    "TSLA": "Tesla Inc. (EV/Clean Energy)",
-    "BRK-B": "Berkshire Hathaway Inc. Class B",
-    "BRK.B": "Berkshire Hathaway Inc. Class B",
-    "XLC": "Communication Services Sector ETF",
-    "XLY": "Consumer Discretionary Sector ETF",
-    "XLP": "Consumer Staples Sector ETF",
-    "XLE": "Energy Sector ETF",
-    "XLF": "Financial Sector ETF",
-    "XLV": "Health Care Sector ETF",
-    "XLI": "Industrial Sector ETF",
-    "XLB": "Materials Sector ETF",
-    "XLRE": "Real Estate Sector ETF",
-    "XLK": "Technology Sector ETF",
-    "XLU": "Utilities Sector ETF",
-    "VGT": "Vanguard Information Technology ETF",
-    "SGOV": "iShares 0-3 Month Treasury Bond ETF",
-    "JPST": "JPMorgan Ultra-Short Income ETF",
-    "JAAA": "JPMorgan Collateralized Loan Obligation ETF",
-    "JBBB": "JPMorgan High Yield CLO ETF",
-    "SCYB": "BNY Mellon High Yield Beta ETF",
-    "JEPI": "JPMorgan Equity Premium Income ETF",
-    "QQQI": "NEOS Nasdaq-100 High Income ETF",
-    "SPYI": "NEOS S&P 500 High Income ETF",
-    "JEPQ": "JPMorgan Nasdaq Equity Premium Income ETF",
-    "XYLD": "Global X S&P 500 Covered Call ETF",
-    "QYLD": "Global X Nasdaq 100 Covered Call ETF",
-    "USMV": "iShares MSCI USA Min Vol Factor ETF",
-    "SPHD": "Invesco S&P 500 High Dividend Low Vol ETF",
-    "SCHD": "Schwab U.S. Dividend Equity ETF",
-    "VYM": "Vanguard High Dividend Yield ETF",
-    "HDV": "iShares Core High Dividend ETF",
-    "FBTC": "Fidelity Wise Origin Bitcoin Fund",
-    "IBIT": "iShares Bitcoin Trust",
-    "IAUM": "iShares Gold Trust Micro",
-    "GLD": "SPDR Gold Shares",
-    "SLV": "iShares Silver Trust",
-    "IWM": "iShares Russell 2000 ETF",
-    "VWO": "Vanguard FTSE Emerging Markets ETF",
-    "EFA": "iShares MSCI EAFE ETF",
-    "IWF": "iShares Russell 1000 Growth ETF",
-    "IWD": "iShares Russell 1000 Value ETF",
-    "DGRO": "iShares Core Dividend Growth ETF",
-    "NOBL": "ProShares S&P 500 Dividend Aristocrats ETF",
-    "QUAL": "iShares MSCI USA Quality Factor ETF",
-    "MTUM": "iShares MSCI USA Momentum Factor ETF",
-    "SMH": "VanEck Semiconductor ETF",
-    "XSD": "SPDR S&P Semiconductor ETF",
-    "IGV": "iShares Expanded Tech-Software Sector ETF",
-    "ITA": "iShares U.S. Aerospace & Defense ETF",
-    "XHB": "SPDR S&P Homebuilders ETF",
-    "XME": "SPDR S&P Metals & Mining ETF",
-    "XOP": "SPDR S&P Oil & Gas Exploration & Production ETF",
-    "KRE": "SPDR S&P Regional Banking ETF",
-    "HYG": "iShares iBoxx $ High Yield Corporate Bond ETF",
-    "LQD": "iShares iBoxx $ Investment Grade Corporate Bond ETF",
-    "TLT": "iShares 20+ Year Treasury Bond ETF",
-    "SOXX": "iShares Semiconductor ETF",
-    "XBI": "SPDR S&P Biotech ETF"
-  },
-  "preset_configs": {
-    "Watching": {
-      "tickers": "",
-      "buffer": 2.0,
-      "rvol": 0.80,
-      "min_atr": 0.50,
-      "rationale": "Your blank personal active watchlist for monitoring custom setups."
-    },
-    "Broad Market": {
-      "tickers": "SPY, QQQ, IWM, DJIA, EMXC, VEA",
-      "buffer": 2.0,
-      "rvol": 0.80,
-      "min_atr": 0.50,
-      "rationale": "Broad indices exhibiting moderate volatility."
-    },
-    "Mag7": {
-      "tickers": "NVDA, AAPL, MSFT, AMZN, GOOGL, META, TSLA",
-      "buffer": 2.5,
-      "rvol": 1.00,
-      "min_atr": 0.50,
-      "rationale": "High-beta tech mega-caps requiring robust trend confirmation."
-    },
-    "Sector ETFs": {
-      "tickers": "XLC, XLY, XLP, XLE, XLF, XLV, XLI, XLB, XLRE, XLK, XLU",
-      "buffer": 2.0,
-      "rvol": 0.80,
-      "min_atr": 0.50,
-      "rationale": "Broad sector and industry tracking pool."
-    },
-    "Bond ETFs": {
-      "tickers": "SGOV, JPST, JAAA, JBBB, SCYB",
-      "buffer": 1.0,
-      "rvol": 0.50,
-      "min_atr": 0.00,
-      "rationale": "Fixed-income assets in tight bands."
-    },
-    "Covered Call ETFs": {
-      "tickers": "SPYI, QQQI, JEPI, JEPQ, XYLD, QYLD",
-      "buffer": 1.5,
-      "rvol": 0.70,
-      "min_atr": 0.25,
-      "rationale": "Option-overlay funds with income focus."
-    },
-    "Dividend ETFs": {
-      "tickers": "USMV, SPHD, SCHD, VYM, HDV",
-      "buffer": 1.5,
-      "rvol": 0.70,
-      "min_atr": 0.25,
-      "rationale": "Dividend funds with lower beta."
-    },
-    "Speculative & Commodities": {
-      "tickers": "FBTC, IBIT, IAUM, GLD, SLV",
-      "buffer": 3.0,
-      "rvol": 1.20,
-      "min_atr": 1.00,
-      "rationale": "Crypto and commodities with high volatility."
-    }
-  },
-  "global_macro_universe": {
-    "S&P 500 Large Cap": "SPY",
-    "Nasdaq 100 Tech/Growth": "QQQ",
-    "Dow Jones Industrials": "DIA",
-    "Russell 2000 Small Cap": "IWM",
-    "Emerging Markets": "EEM",
-    "Developed International": "EFA",
-    "Semiconductors": "SMH",
-    "Aerospace & Defense": "ITA",
-    "Energy Select": "XLE",
-    "Financials Select": "XLF",
-    "Healthcare Select": "XLV"
-  },
-  "default_stock_universe": [
-    "NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "AMD", "COST", "AVGO", "LLY", "NFLX", "JPM", "V", "UNH", "XOM"
-  ],
-  "benchmarks": ["SPY", "QQQ", "DIA", "EEM"],
-  "criteria_thresholds": {
-    "max_dist_from_50sma_pct": 0.04,
-    "min_ud_vol_ratio": 1.15,
-    "lookback_period": "1y"
-  }
-}
+def render_config_snippet_generator(tickers_list, config_mapping):
+  """Checks tickers against config.json.
+
+  If any are unmapped, prompts for selection and outputs the exact JSON snippet
+  to copy-paste into GitHub.
+  """
+  known_benchmarks = ["SPY", "QQQ", "DIA", "IWM", "EFA", "EMXC"]
+  resolved_map = {}
+  unmapped = []
+
+  for t in tickers_list:
+    t = t.upper().strip()
+    if not t:
+      continue
+
+    # Check if already in config mapping
+    if t in config_mapping:
+      resolved_map[t] = None if config_mapping[t] == "None" else config_mapping[t]
+    elif t in known_benchmarks or t in ["GLD", "IAU", "IBIT"]:
+      resolved_map[t] = None if t in ["GLD", "IAU", "IBIT"] else t
+    else:
+      unmapped.append(t)
+
+  if unmapped:
+    st.warning(
+        f"⚠️ **Action Required:** Unmapped Ticker(s) Detected —"
+        f" `{', '.join(unmapped)}`"
+    )
+    st.markdown(
+        "Please assign a benchmark below to generate your `config.json` update"
+        " snippet for GitHub:"
+    )
+
+    for t in unmapped:
+      col1, col2 = st.columns([1, 2])
+      with col1:
+        st.write(f"**{t}**")
+      with col2:
+        choice = st.selectbox(
+            f"Select Benchmark for {t}",
+            ["SPY", "QQQ", "DIA", "IWM", "EFA", "EMXC", "None (Standalone)"],
+            key=f"gen_snippet_{t}",
+        )
+        val = "None" if choice == "None (Standalone)" else choice
+        resolved_map[t] = None if val == "None" else val
+
+        # Display the exact JSON snippet for the user to copy into GitHub
+        st.markdown(
+            "📋 Copy this line into your GitHub `config.json`"
+            " `benchmark_mapping` dictionary:"
+        )
+        st.code(f'"{t}": "{val}",', language="json")
+
+    st.stop()  # Pauses execution until the user updates config or acknowledges
+
+  return resolved_map
