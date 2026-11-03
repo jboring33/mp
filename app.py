@@ -44,12 +44,12 @@ config = load_config()
 config_mapping = config.get("benchmark_mapping", {})
 
 
-# --- Interactive Benchmark Interceptor & Snippet Generator ---
+# --- Interactive Benchmark Interceptor & Snippet Generator (Non-Blocking) ---
 def render_config_snippet_generator(tickers_list, config):
   """Checks tickers against config.json benchmark_mapping and regional maps.
 
-  If any are unmapped, prompts for selection and outputs the exact JSON snippet
-  to copy-paste into GitHub config.json.
+  Displays warnings and GitHub JSON snippets for unmapped tickers without
+  halting app execution.
   """
   known_benchmarks = config.get(
       "benchmarks", ["SPY", "QQQ", "DIA", "IWM", "EFA", "EMXC"]
@@ -89,12 +89,8 @@ def render_config_snippet_generator(tickers_list, config):
 
   if unmapped:
     st.warning(
-        f"⚠️ **Action Required:** Unmapped Ticker(s) Detected —"
-        f" `{', '.join(unmapped)}`"
-    )
-    st.markdown(
-        "Please assign a benchmark below to generate your `config.json` update"
-        " snippet for GitHub:"
+        f"⚠️ **Unmapped Ticker(s) Detected:** `{', '.join(unmapped)}` — "
+        "Assign a benchmark below to generate your GitHub `config.json` snippet:"
     )
 
     for t in unmapped:
@@ -110,13 +106,7 @@ def render_config_snippet_generator(tickers_list, config):
         val = "None" if choice == "None (Standalone)" else choice
         resolved_map[t] = None if val == "None" else val
 
-        st.markdown(
-            "📋 Copy this line into your GitHub `config.json`"
-            " `benchmark_mapping` dictionary:"
-        )
         st.code(f'"{t}": "{val}",', language="json")
-
-    st.stop()  # Pauses execution until config is updated or acknowledged
 
   return resolved_map
 
