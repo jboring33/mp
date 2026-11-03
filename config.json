@@ -1,56 +1,25 @@
-def render_config_snippet_generator(tickers_list, config_mapping):
-  """Checks tickers against config.json.
-
-  If any are unmapped, prompts for selection and outputs the exact JSON snippet
-  to copy-paste into GitHub.
-  """
-  known_benchmarks = ["SPY", "QQQ", "DIA", "IWM", "EFA", "EMXC"]
-  resolved_map = {}
-  unmapped = []
-
-  for t in tickers_list:
-    t = t.upper().strip()
-    if not t:
-      continue
-
-    # Check if already in config mapping
-    if t in config_mapping:
-      resolved_map[t] = None if config_mapping[t] == "None" else config_mapping[t]
-    elif t in known_benchmarks or t in ["GLD", "IAU", "IBIT"]:
-      resolved_map[t] = None if t in ["GLD", "IAU", "IBIT"] else t
-    else:
-      unmapped.append(t)
-
-  if unmapped:
-    st.warning(
-        f"⚠️ **Action Required:** Unmapped Ticker(s) Detected —"
-        f" `{', '.join(unmapped)}`"
-    )
-    st.markdown(
-        "Please assign a benchmark below to generate your `config.json` update"
-        " snippet for GitHub:"
-    )
-
-    for t in unmapped:
-      col1, col2 = st.columns([1, 2])
-      with col1:
-        st.write(f"**{t}**")
-      with col2:
-        choice = st.selectbox(
-            f"Select Benchmark for {t}",
-            ["SPY", "QQQ", "DIA", "IWM", "EFA", "EMXC", "None (Standalone)"],
-            key=f"gen_snippet_{t}",
-        )
-        val = "None" if choice == "None (Standalone)" else choice
-        resolved_map[t] = None if val == "None" else val
-
-        # Display the exact JSON snippet for the user to copy into GitHub
-        st.markdown(
-            "📋 Copy this line into your GitHub `config.json`"
-            " `benchmark_mapping` dictionary:"
-        )
-        st.code(f'"{t}": "{val}",', language="json")
-
-    st.stop()  # Pauses execution until the user updates config or acknowledges
-
-  return resolved_map
+{
+    "benchmarks": ["SPY", "QQQ", "DIA", "IWM", "EFA", "EMXC"],
+    "benchmark_mapping": {
+        "SCHD": "DIA",
+        "SPYI": "SPY",
+        "QQQI": "QQQ"
+    },
+    "global_macro_universe": {
+        "S&P 500 (Core US)": "SPY",
+        "Nasdaq 100 (US Tech Growth)": "QQQ",
+        "Dow Jones (US Value/Industrial)": "DIA",
+        "US Small Cap (Russell 2000)": "IWM",
+        "Developed International (EFA)": "EFA",
+        "Emerging Markets Ex-China (EMXC)": "EMXC",
+        "India Equity (Ex-China Growth)": "INDA",
+        "Japan Equity (Developed Asia)": "EWJ",
+        "Europe Developed (Stoxx 50)": "VGK"
+    },
+    "criteria_thresholds": {
+        "max_dist_from_50sma_pct": 0.04,
+        "min_ud_vol_ratio": 1.15,
+        "default_buffer_pct": 0.02,
+        "default_rvol": 0.80
+    }
+}
