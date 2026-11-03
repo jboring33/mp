@@ -58,6 +58,23 @@ workflow_mode = st.sidebar.radio(
 )
 
 st.sidebar.divider()
+
+# --- COLLAPSIBLE IN-APP README (Expand on Demand) ---
+with st.sidebar.expander("📖 System README & Architecture", expanded=False):
+  st.markdown("""
+    ### 🛡️ 90% Core ETF Pipeline
+    1. **Stage 1 (IVP):** Verify underlying asset or ETF valuation / margin of safety.
+    2. **Stage 2 (RT):** Scan broad macro asset classes and sector ETFs using moving average support.
+    3. **Stage 3 (200-Day):** Enforce strict macro trend discipline and buffer zones.
+
+    ### 🚀 10% Satellite Swing Trade Pipeline
+    1. **Stage 1 (RT):** Scan individual equities with strict institutional volume filters (`Up/Down Vol >= 1.15`).
+    2. **Stage 2 (STP):** Evaluate short-term momentum (20 EMA) and trailing ATR stops for tactical execution.
+
+    ### ⚙️ Configuration
+    * Powered by a single centralized `config.json` (Source of Truth).
+    """)
+
 st.sidebar.info(
     "💡 **Architecture:** Centralized Master Hub reading from single"
     " config.json."
@@ -183,7 +200,6 @@ else:
 
     if st.button("Run Stock Dip Scan", type="primary", key="btn_rt_stock"):
       st.success("Stock Dip Scan Complete! High-conviction candidates isolated.")
-      # Display mock or filtered stock results
       st.markdown(
           "*Qualified Candidates for Swing Allocation:* **NVDA, META, AMZN**"
       )
