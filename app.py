@@ -137,7 +137,7 @@ buffer_pct = st.sidebar.slider(
 
 st.sidebar.divider()
 
-# --- Sidebar Benchmark Mapping & Flyover Description Inspector ---
+# --- Sidebar Benchmark Mapping & Clean Expanders ---
 st.sidebar.header("🔍 Active Mappings")
 benchmark_mapping = config.get("benchmark_mapping", {})
 bench_descriptions = config.get(
@@ -153,7 +153,6 @@ bench_descriptions = config.get(
 )
 
 if benchmark_mapping:
-  mapping_rows = []
   for ticker, details in benchmark_mapping.items():
     if isinstance(details, dict):
       bench = details.get("benchmark", "SPY")
@@ -165,32 +164,11 @@ if benchmark_mapping:
       asset_cls = "Core"
 
     b_desc = bench_descriptions.get(bench, f"{bench} Core Benchmark Index")
-    flyover_label = f"Ticker: {t_desc} | Benchmark: {b_desc}"
 
-    mapping_rows.append({
-        "Ticker": ticker,
-        "Assigned Benchmark": bench,
-        "Asset Class": asset_cls,
-        "Details (Flyover)": flyover_label,
-    })
-
-  st.sidebar.dataframe(
-      pd.DataFrame(mapping_rows),
-      use_container_width=True,
-      hide_index=True,
-      column_config={
-          "Ticker": st.column_config.TextColumn("Ticker", width="small"),
-          "Assigned Benchmark": st.column_config.TextColumn(
-              "Benchmark", width="small"
-          ),
-          "Asset Class": st.column_config.TextColumn(
-              "Asset Class", width="medium"
-          ),
-          "Details (Flyover)": st.column_config.TextColumn(
-              "Info (Hover)", help="Full ticker and benchmark descriptions"
-          ),
-      },
-  )
+    with st.sidebar.expander(f"{ticker} ➔ {bench} ({asset_cls})"):
+      st.markdown(f"**Ticker Desc:** {t_desc}")
+      st.markdown(f"**Benchmark:** {bench}")
+      st.markdown(f"**Benchmark Desc:** {b_desc}")
 else:
   st.sidebar.info("No custom benchmark mappings found in config.")
 
