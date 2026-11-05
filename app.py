@@ -185,11 +185,20 @@ with st.sidebar.expander("💡 Benchmark Selection & Mapping Guide"):
     * **Emerging Markets ex-China / India (MSCI/FTSE Ex-China):** Map to **`EMXC`**
     """)
 
-with st.sidebar.expander("📖 System Architecture & Guide"):
+# --- Updated System Architecture & Guide ---
+with st.sidebar.expander("📖 System Architecture & Guide", expanded=False):
   st.markdown("""
-    * **Current Portfolio:** Live holdings monitor & multi-benchmark safe-harbor rotation matrix.
-    * **90% Core ETF:** Macro relative strength ➔ Intrinsic Value ➔ 200-Day Trend Triggers.
-    * **10% Satellite:** Custom screener ➔ Institutional dip evaluation ➔ Tactical watchlist execution.
+    **Core Infrastructure & Governance:**
+    * **Single Source of Truth (`config.json`):** All benchmark mappings, descriptions, and criteria thresholds are loaded directly from GitHub to guarantee persistent cross-session alignment.
+    * **Asset-Class Threshold Profiles:** Dynamically tunes RVOL, 50 SMA distance limits, and 200-day buffer percentages based on target asset classes (Dividends, Covered Calls, Fixed Income, Growth).
+    * **MSCI / FTSE Mapping Engine:** Maps abstract index providers to liquid tradeable proxy ETFs (`SPY`, `QQQ`, `DIA`, `IWM`, `EFA`, `EMXC`).
+
+    ---
+
+    **Engine Workflows:**
+    * **💼 Current Portfolio:** Multi-benchmark regime health monitor & risk-off safe-harbor rotation logic (`SCYB`, `JAAA`, `JPST`).
+    * **🛡️ 90% Core ETF Strategy:** 3-Stage Pipeline: Macro Universe Scan ➔ Intrinsic Valuation & Dip Check ➔ 200-Day Trend Triggers.
+    * **🚀 10% Satellite Stock Strategy:** Custom Screener ➔ Institutional Money Flow (RVOL & Volume Ratio) ➔ Tactical Dip Execution.
     """)
 
 
