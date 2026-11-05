@@ -58,119 +58,120 @@ strategy_engine = st.sidebar.selectbox(
 
 st.sidebar.divider()
 
-# --- Sidebar Asset Class Threshold Profiles & Sliders ---
-st.sidebar.header("⚙️ Institutional Criteria & RVOL Profiles")
+# --- Collapsible Sidebar: Institutional Criteria & RVOL Profiles ---
+with st.sidebar.expander(
+    "⚙️ Institutional Criteria & RVOL Profiles", expanded=False
+):
+  asset_profiles = config.get(
+      "asset_class_thresholds",
+      {
+          "Broad Market Core": {
+              "max_dist_from_50sma_pct": 0.04,
+              "min_ud_vol_ratio": 1.15,
+              "default_buffer_pct": 0.02,
+              "default_rvol": 0.80,
+          },
+          "Dividends & Value": {
+              "max_dist_from_50sma_pct": 0.03,
+              "min_ud_vol_ratio": 1.10,
+              "default_buffer_pct": 0.015,
+              "default_rvol": 0.75,
+          },
+          "Covered Calls & Income": {
+              "max_dist_from_50sma_pct": 0.025,
+              "min_ud_vol_ratio": 1.05,
+              "default_buffer_pct": 0.01,
+              "default_rvol": 0.70,
+          },
+          "Fixed Income & Safe Harbors": {
+              "max_dist_from_50sma_pct": 0.01,
+              "min_ud_vol_ratio": 1.00,
+              "default_buffer_pct": 0.005,
+              "default_rvol": 0.50,
+          },
+          "Growth & Satellite Equities": {
+              "max_dist_from_50sma_pct": 0.06,
+              "min_ud_vol_ratio": 1.25,
+              "default_buffer_pct": 0.03,
+              "default_rvol": 1.10,
+          },
+      },
+  )
 
-asset_profiles = config.get(
-    "asset_class_thresholds",
-    {
-        "Broad Market Core": {
-            "max_dist_from_50sma_pct": 0.04,
-            "min_ud_vol_ratio": 1.15,
-            "default_buffer_pct": 0.02,
-            "default_rvol": 0.80,
-        },
-        "Dividends & Value": {
-            "max_dist_from_50sma_pct": 0.03,
-            "min_ud_vol_ratio": 1.10,
-            "default_buffer_pct": 0.015,
-            "default_rvol": 0.75,
-        },
-        "Covered Calls & Income": {
-            "max_dist_from_50sma_pct": 0.025,
-            "min_ud_vol_ratio": 1.05,
-            "default_buffer_pct": 0.01,
-            "default_rvol": 0.70,
-        },
-        "Fixed Income & Safe Harbors": {
-            "max_dist_from_50sma_pct": 0.01,
-            "min_ud_vol_ratio": 1.00,
-            "default_buffer_pct": 0.005,
-            "default_rvol": 0.50,
-        },
-        "Growth & Satellite Equities": {
-            "max_dist_from_50sma_pct": 0.06,
-            "min_ud_vol_ratio": 1.25,
-            "default_buffer_pct": 0.03,
-            "default_rvol": 1.10,
-        },
-    },
-)
+  selected_profile_name = st.selectbox(
+      "Asset Class / Strategy Profile:", list(asset_profiles.keys())
+  )
+  selected_profile = asset_profiles.get(
+      selected_profile_name, list(asset_profiles.values())[0]
+  )
 
-selected_profile_name = st.sidebar.selectbox(
-    "Asset Class / Strategy Profile:", list(asset_profiles.keys())
-)
-selected_profile = asset_profiles.get(
-    selected_profile_name, list(asset_profiles.values())[0]
-)
-
-active_rvol = st.sidebar.slider(
-    "Target RVOL Threshold",
-    min_value=0.40,
-    max_value=2.00,
-    value=float(selected_profile.get("default_rvol", 0.80)),
-    step=0.05,
-)
-max_dist_sma = st.sidebar.slider(
-    "Max Dist from 50 SMA (%)",
-    min_value=0.005,
-    max_value=0.100,
-    value=float(selected_profile.get("max_dist_from_50sma_pct", 0.04)),
-    step=0.005,
-    format="%.3f",
-)
-min_ud_vol = st.sidebar.slider(
-    "Min Up/Down Volume Ratio",
-    min_value=1.00,
-    max_value=2.00,
-    value=float(selected_profile.get("min_ud_vol_ratio", 1.15)),
-    step=0.05,
-)
-buffer_pct = st.sidebar.slider(
-    "200-Day Buffer (%)",
-    min_value=0.000,
-    max_value=0.050,
-    value=float(selected_profile.get("default_buffer_pct", 0.02)),
-    step=0.005,
-    format="%.3f",
-)
+  active_rvol = st.slider(
+      "Target RVOL Threshold",
+      min_value=0.40,
+      max_value=2.00,
+      value=float(selected_profile.get("default_rvol", 0.80)),
+      step=0.05,
+  )
+  max_dist_sma = st.slider(
+      "Max Dist from 50 SMA (%)",
+      min_value=0.005,
+      max_value=0.100,
+      value=float(selected_profile.get("max_dist_from_50sma_pct", 0.04)),
+      step=0.005,
+      format="%.3f",
+  )
+  min_ud_vol = st.slider(
+      "Min Up/Down Volume Ratio",
+      min_value=1.00,
+      max_value=2.00,
+      value=float(selected_profile.get("min_ud_vol_ratio", 1.15)),
+      step=0.05,
+  )
+  buffer_pct = st.slider(
+      "200-Day Buffer (%)",
+      min_value=0.000,
+      max_value=0.050,
+      value=float(selected_profile.get("default_buffer_pct", 0.02)),
+      step=0.005,
+      format="%.3f",
+  )
 
 st.sidebar.divider()
 
-# --- Sidebar Benchmark Mapping & Clean Expanders ---
-st.sidebar.header("🔍 Active Mappings")
-benchmark_mapping = config.get("benchmark_mapping", {})
-bench_descriptions = config.get(
-    "benchmark_descriptions",
-    {
-        "SPY": "SPDR S&P 500 ETF Trust (US Large Cap Core)",
-        "QQQ": "Invesco QQQ Trust (US Tech & Growth)",
-        "DIA": "SPDR Dow Jones Industrial Average ETF (US Value & Mega Cap)",
-        "IWM": "iShares Russell 2000 ETF (US Small Cap)",
-        "EFA": "iShares MSCI EAFE ETF (Developed International)",
-        "EMXC": "iShares MSCI Emerging Markets ex China ETF",
-    },
-)
+# --- Collapsible Sidebar: Active Mappings ---
+with st.sidebar.expander("🔍 Active Mappings & Descriptions", expanded=False):
+  benchmark_mapping = config.get("benchmark_mapping", {})
+  bench_descriptions = config.get(
+      "benchmark_descriptions",
+      {
+          "SPY": "SPDR S&P 500 ETF Trust (US Large Cap Core)",
+          "QQQ": "Invesco QQQ Trust (US Tech & Growth)",
+          "DIA": "SPDR Dow Jones Industrial Average ETF (US Value & Mega Cap)",
+          "IWM": "iShares Russell 2000 ETF (US Small Cap)",
+          "EFA": "iShares MSCI EAFE ETF (Developed International)",
+          "EMXC": "iShares MSCI Emerging Markets ex China ETF",
+      },
+  )
 
-if benchmark_mapping:
-  for ticker, details in benchmark_mapping.items():
-    if isinstance(details, dict):
-      bench = details.get("benchmark", "SPY")
-      t_desc = details.get("description", "")
-      asset_cls = details.get("asset_class", "Core")
-    else:
-      bench = details
-      t_desc = ""
-      asset_cls = "Core"
+  if benchmark_mapping:
+    for ticker, details in benchmark_mapping.items():
+      if isinstance(details, dict):
+        bench = details.get("benchmark", "SPY")
+        t_desc = details.get("description", "")
+        asset_cls = details.get("asset_class", "Core")
+      else:
+        bench = details
+        t_desc = ""
+        asset_cls = "Core"
 
-    b_desc = bench_descriptions.get(bench, f"{bench} Core Benchmark Index")
+      b_desc = bench_descriptions.get(bench, f"{bench} Core Benchmark Index")
 
-    with st.sidebar.expander(f"{ticker} ➔ {bench} ({asset_cls})"):
-      st.markdown(f"**Ticker Desc:** {t_desc}")
-      st.markdown(f"**Benchmark:** {bench}")
-      st.markdown(f"**Benchmark Desc:** {b_desc}")
-else:
-  st.sidebar.info("No custom benchmark mappings found in config.")
+      with st.expander(f"{ticker} ➔ {bench} ({asset_cls})"):
+        st.markdown(f"**Ticker Desc:** {t_desc}")
+        st.markdown(f"**Benchmark:** {bench}")
+        st.markdown(f"**Benchmark Desc:** {b_desc}")
+  else:
+    st.info("No custom benchmark mappings found in config.")
 
 # --- Built-in Mapping & Index Guidance Expander ---
 with st.sidebar.expander("💡 Benchmark Selection & Mapping Guide"):
