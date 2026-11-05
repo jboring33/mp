@@ -1,16 +1,12 @@
-from datetime import datetime
 import json
 import os
-import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
 import yfinance as yf
 
 # Page Configuration
-st.set_page_config(
-    page_title="MP Master Hub", page_icon="🏛️", layout="wide"
-)
+st.set_page_config(page_title="MP Master Hub", page_icon="🏛️", layout="wide")
 
 MASTER_CONFIG_URL = (
     "https://raw.githubusercontent.com/jboring33/MP/main/config.json"
@@ -34,14 +30,10 @@ def load_config():
     pass
   return {
       "benchmarks": ["SPY", "QQQ", "DIA", "IWM", "EFA", "EMXC"],
+      "benchmark_descriptions": {},
       "benchmark_mapping": {},
+      "asset_class_thresholds": {},
       "global_macro_universe": {},
-      "criteria_thresholds": {
-          "max_dist_from_50sma_pct": 0.04,
-          "min_ud_vol_ratio": 1.15,
-          "default_buffer_pct": 0.02,
-          "default_rvol": 0.80,
-      },
   }
 
 
@@ -63,62 +55,138 @@ strategy_engine = st.sidebar.selectbox(
 
 st.sidebar.divider()
 
-# --- Sidebar Threshold & Parameter Editor ---
-st.sidebar.header("⚙️ Institutional Criteria & RVOL")
-thresholds = config.get("criteria_thresholds", {})
+# --- Sidebar Asset Class Threshold Profiles & Sliders ---
+st.sidebar.header("⚙️ Institutional Criteria & RVOL Profiles")
+
+asset_profiles = config.get(
+    "asset_class_thresholds",
+    {
+        "Broad Market Core": {
+            "max_dist_from_50sma_pct": 0.04,
+            "min_ud_vol_ratio": 1.15,
+            "default_buffer_pct": 0.02,
+            "default_rvol": 0.80,
+        },
+        "Dividends & Value": {
+            "max_dist_from_50sma_pct": 0.03,
+            "min_ud_vol_ratio": 1.10,
+            "default_buffer_pct": 0.015,
+            "default_rvol": 0.75,
+        },
+        "Covered Calls & Income": {
+            "max_dist_from_50sma_pct": 0.025,
+            "min_ud_vol_ratio": 1.05,
+            "default_buffer_pct": 0.01,
+            "default_rvol": 0.70,
+        },
+        "Fixed Income & Safe Harbors": {
+            "max_dist_from_50sma_pct": 0.01,
+            "min_ud_vol_ratio": 1.00,
+            "default_buffer_pct": 0.005,
+            "default_rvol": 0.50,
+        },
+        "Growth & Satellite Equities": {
+            "max_dist_from_50sma_pct": 0.06,
+            "min_ud_vol_ratio": 1.25,
+            "default_buffer_pct": 0.03,
+            "default_rvol": 1.10,
+        },
+    },
+)
+
+selected_profile_name = st.sidebar.selectbox(
+    "Asset Class / Strategy Profile:", list(asset_profiles.keys())
+)
+selected_profile = asset_profiles.get(
+    selected_profile_name, list(asset_profiles.values())[0]
+)
 
 active_rvol = st.sidebar.slider(
-    "Default RVOL Threshold",
-    min_value=0.50,
+    "Target RVOL Threshold",
+    min_value=0.40,
     max_value=2.00,
-    value=float(thresholds.get("default_rvol", 0.80)),
+    value=float(selected_profile.get("default_rvol", 0.80)),
     step=0.05,
 )
 max_dist_sma = st.sidebar.slider(
     "Max Dist from 50 SMA (%)",
-    min_value=0.01,
-    max_value=0.10,
-    value=float(thresholds.get("max_dist_from_50sma_pct", 0.04)),
-    step=0.01,
+    min_value=0.005,
+    max_value=0.100,
+    value=float(selected_profile.get("max_dist_from_50sma_pct", 0.04)),
+    step=0.005,
+    format="%.3f",
 )
 min_ud_vol = st.sidebar.slider(
     "Min Up/Down Volume Ratio",
     min_value=1.00,
     max_value=2.00,
-    value=float(thresholds.get("min_ud_vol_ratio", 1.15)),
+    value=float(selected_profile.get("min_ud_vol_ratio", 1.15)),
     step=0.05,
 )
 buffer_pct = st.sidebar.slider(
-    "Default Buffer (%)",
-    min_value=0.00,
-    max_value=0.05,
-    value=float(thresholds.get("default_buffer_pct", 0.02)),
+    "200-Day Buffer (%)",
+    min_value=0.000,
+    max_value=0.050,
+    value=float(selected_profile.get("default_buffer_pct", 0.02)),
     step=0.005,
+    format="%.3f",
 )
 
 st.sidebar.divider()
 
-# --- Sidebar Benchmark Mapping & Description Inspector ---
+# --- Sidebar Benchmark Mapping & Dual Description Inspector ---
 st.sidebar.header("🔍 Active Mappings & Descriptions")
 benchmark_mapping = config.get("benchmark_mapping", {})
+bench_descriptions = config.get(
+    "benchmark_descriptions",
+    {
+        "SPY": "SPDR S&P 500 ETF Trust (US Large Cap Core)",
+        "QQQ": "Invesco QQQ Trust (US Tech & Growth)",
+        "DIA": "SPDR Dow Jones Industrial Average ETF (US Value & Mega Cap)",
+        "IWM": "iShares Russell 2000 ETF (US Small Cap)",
+        "EFA": "iShares MSCI EAFE ETF (Developed International)",
+        "EMXC": "iShares MSCI Emerging Markets ex China ETF",
+    },
+)
 
 if benchmark_mapping:
   mapping_rows = []
   for ticker, details in benchmark_mapping.items():
     if isinstance(details, dict):
       bench = details.get("benchmark", "SPY")
-      desc = details.get("description", "")
+      t_desc = details.get("description", "")
+      asset_cls = details.get("asset_class", "Core")
     else:
       bench = details
-      desc = ""
-    mapping_rows.append(
-        {"Ticker": ticker, "Benchmark": bench, "Description": desc}
-    )
+      t_desc = ""
+      asset_cls = "Core"
+
+    b_desc = bench_descriptions.get(bench, f"{bench} Core Benchmark Index")
+
+    mapping_rows.append({
+        "Ticker": ticker,
+        "Ticker Description": t_desc,
+        "Assigned Benchmark": bench,
+        "Benchmark Description": b_desc,
+        "Asset Class": asset_cls,
+    })
   st.sidebar.dataframe(
       pd.DataFrame(mapping_rows), use_container_width=True, hide_index=True
   )
 else:
   st.sidebar.info("No custom benchmark mappings found in config.")
+
+# --- Built-in Mapping & Index Guidance Expander ---
+with st.sidebar.expander("💡 Benchmark Selection & Mapping Guide"):
+  st.markdown("""
+    When evaluating a ticker's long description (e.g., tracking an MSCI or FTSE index), use these mapping rules:
+    * **US Large Cap / Broad Market (S&P/Russell):** Map to **`SPY`**
+    * **US Tech & Growth (Nasdaq):** Map to **`QQQ`**
+    * **US Value / Industrial / Dividends (Dow Jones):** Map to **`DIA`**
+    * **US Small Cap (Russell 2000):** Map to **`IWM`**
+    * **Developed International / Europe / Japan (MSCI EAFE / FTSE Developed):** Map to **`EFA`**
+    * **Emerging Markets ex-China / India (MSCI/FTSE Ex-China):** Map to **`EMXC`**
+    """)
 
 with st.sidebar.expander("📖 System Architecture & Guide"):
   st.markdown("""
@@ -128,26 +196,43 @@ with st.sidebar.expander("📖 System Architecture & Guide"):
     """)
 
 
-# --- Helper: Resolve Benchmark & Description for Ticker ---
+# --- Helper: Resolve Benchmark & Dual Description for Ticker ---
 def get_resolved_benchmark_info(ticker):
   t = ticker.upper().strip()
   b_map = config.get("benchmark_mapping", {})
+  b_desc_map = config.get("benchmark_descriptions", bench_descriptions)
+
   if t in b_map:
     info = b_map[t]
     if isinstance(info, dict):
-      return info.get("benchmark", "SPY"), info.get("description", "")
-    return info, ""
-  # Regional fallback mapping
-  if t in ["INDA"]:
-    return "EMXC", "iShares MSCI India ETF"
+      bench = info.get("benchmark", "SPY")
+      t_desc = info.get("description", "")
+    else:
+      bench = info
+      t_desc = ""
+    b_desc = b_desc_map.get(bench, f"{bench} Benchmark")
+    return bench, t_desc, b_desc
+
+  # Regional/Index fallback mappings
+  if t == "INDA":
+    return (
+        "EMXC",
+        "iShares MSCI India ETF",
+        b_desc_map.get("EMXC", "Emerging Markets ex China"),
+    )
   if t in ["EWJ", "VGK"]:
-    return "EFA", "Developed International / Europe / Japan"
-  return "SPY", "Core US Benchmark"
+    return (
+        "EFA",
+        "International Developed ETF",
+        b_desc_map.get("EFA", "Developed International"),
+    )
+
+  return "SPY", f"{t} Asset", b_desc_map.get("SPY", "SPDR S&P 500 ETF")
 
 
 # --- Benchmark Regime Helper ---
 def get_benchmark_regime(ticker_symbol):
-  bench, _ = get_resolved_benchmark_info(ticker_symbol)
+  bench, _, _ = get_resolved_benchmark_info(ticker_symbol)
   if not bench:
     return "🟢 STANDALONE ASSET", f"({ticker_symbol} Evaluated on Own SMAs)"
   try:
@@ -212,8 +297,10 @@ if strategy_engine == "💼 Current Portfolio & Rotation Engine":
         sma50 = float(c.rolling(50).mean().iloc[-1])
         sma200 = float(c.rolling(200).mean().iloc[-1])
         regime, action = get_benchmark_regime(b)
+        b_desc = bench_descriptions.get(b, b)
         rot_data.append({
             "Benchmark": b,
+            "Benchmark Description": b_desc,
             "Price": round(price, 2),
             "50 SMA": round(sma50, 2),
             "200 SMA": round(sma200, 2),
@@ -245,19 +332,19 @@ if strategy_engine == "💼 Current Portfolio & Rotation Engine":
           sma200 = float(c.rolling(200).mean().iloc[-1])
           dist_200 = ((price - sma200) / sma200) * 100
 
-          # RVOL & Volume Check
           avg_vol = float(vol.rolling(20).mean().iloc[-1])
           cur_vol = float(vol.iloc[-1])
           rvol = cur_vol / avg_vol if avg_vol > 0 else 1.0
 
-          bench, desc = get_resolved_benchmark_info(t)
+          bench, t_desc, b_desc = get_resolved_benchmark_info(t)
           regime, guidance = get_benchmark_regime(t)
 
           portfolio_results.append({
               "Ticker": t,
-              "Description": desc,
+              "Ticker Description": t_desc,
               "Price": round(price, 2),
               "Benchmark": bench,
+              "Benchmark Description": b_desc,
               "RVOL": round(rvol, 2),
               "Regime Status": regime,
               "% vs 200 SMA": f"{dist_200:+.2f}%",
@@ -359,20 +446,25 @@ elif strategy_engine == "🛡️ 90% Core ETF Strategy":
 
             val_status = (
                 "Accumulate / Fair Value"
-                if p >= sma200 and abs(dist_50) <= max_dist_sma
+                if p >= (sma200 * (1.0 - buffer_pct))
+                and abs(dist_50) <= max_dist_sma
                 else (
                     "Deep Value / Discount"
-                    if p < sma200
+                    if p < (sma200 * (1.0 - buffer_pct))
                     else "Extended / Caution"
                 )
             )
 
+            bench, t_desc, b_desc = get_resolved_benchmark_info(t)
+
             iv_results.append({
                 "Ticker": t,
+                "Description": t_desc,
                 "Price": round(p, 2),
                 "50 SMA": round(sma50, 2),
-                "200 SMA": round(sma200, 2),
+                "200 SMA Buffer": round(sma200 * (1.0 - buffer_pct), 2),
                 "RVOL": round(rvol, 2),
+                "Benchmark": bench,
                 "Valuation & Dip Status": val_status,
             })
           except Exception:
@@ -509,14 +601,12 @@ elif strategy_engine == "🚀 10% Satellite Stock Strategy":
             sma200 = float(c.rolling(200).mean().iloc[-1])
             dist_50 = ((price - sma50) / sma50) * 100
 
-            # RVOL Calculation
             avg_vol = float(vol.rolling(20).mean().iloc[-1])
             cur_vol = float(vol.iloc[-1])
             rvol = cur_vol / avg_vol if avg_vol > 0 else 1.0
 
-            # Accumulation vs Distribution check
             flow_status = (
-                "🟢 Institutional Accumulation (RVOL > Threshold & Healthy Dip)"
+                "🟢 Institutional Accumulation (RVOL > Target & Healthy Dip)"
                 if rvol >= active_rvol and price >= sma200
                 else (
                     "🔴 Distribution / Risk (Low Volume / Falling Knife Risk)"
