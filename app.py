@@ -14,6 +14,7 @@ st.query_params.clear()
 MASTER_CONFIG_URL = (
     "https://raw.githubusercontent.com/jboring33/MP/main/config.json"
 )
+README_GUIDE_URL = "https://raw.githubusercontent.com/jboring33/MP/main/README.md"
 CONFIG_PATH = "config.json"
 
 
@@ -40,6 +41,17 @@ def load_config():
   }
 
 
+@st.cache_data(ttl=300)
+def load_readme_guide():
+  try:
+    res = requests.get(README_GUIDE_URL, timeout=3)
+    if res.status_code == 200:
+      return res.text
+  except Exception:
+    pass
+  return "Architecture guide currently unavailable offline."
+
+
 config = load_config()
 
 # --- Title & Sidebar Control Center ---
@@ -62,42 +74,7 @@ st.sidebar.divider()
 with st.sidebar.expander(
     "⚙️ Institutional Criteria & RVOL Profiles", expanded=False
 ):
-  asset_profiles = config.get(
-      "asset_class_thresholds",
-      {
-          "Broad Market Core": {
-              "max_dist_from_50sma_pct": 0.04,
-              "min_ud_vol_ratio": 1.15,
-              "default_buffer_pct": 0.02,
-              "default_rvol": 0.80,
-          },
-          "Dividends & Value": {
-              "max_dist_from_50sma_pct": 0.03,
-              "min_ud_vol_ratio": 1.10,
-              "default_buffer_pct": 0.015,
-              "default_rvol": 0.75,
-          },
-          "Covered Calls & Income": {
-              "max_dist_from_50sma_pct": 0.025,
-              "min_ud_vol_ratio": 1.05,
-              "default_buffer_pct": 0.01,
-              "default_rvol": 0.70,
-          },
-          "Fixed Income & Safe Harbors": {
-              "max_dist_from_50sma_pct": 0.01,
-              "min_ud_vol_ratio": 1.00,
-              "default_buffer_pct": 0.005,
-              "default_rvol": 0.50,
-          },
-          "Growth & Satellite Equities": {
-              "max_dist_from_50sma_pct": 0.06,
-              "min_ud_vol_ratio": 1.25,
-              "default_buffer_pct": 0.03,
-              "default_rvol": 1.10,
-          },
-      },
-  )
-
+  asset_profiles = config.get("asset_class_thresholds", {})
   selected_profile_name = st.selectbox(
       "Asset Class / Strategy Profile:", list(asset_profiles.keys())
   )
@@ -141,17 +118,7 @@ st.sidebar.divider()
 # --- Collapsible Sidebar: Active Mappings ---
 with st.sidebar.expander("🔍 Active Mappings & Descriptions", expanded=False):
   benchmark_mapping = config.get("benchmark_mapping", {})
-  bench_descriptions = config.get(
-      "benchmark_descriptions",
-      {
-          "SPY": "SPDR S&P 500 ETF Trust (US Large Cap Core)",
-          "QQQ": "Invesco QQQ Trust (US Tech & Growth)",
-          "DIA": "SPDR Dow Jones Industrial Average ETF (US Value & Mega Cap)",
-          "IWM": "iShares Russell 2000 ETF (US Small Cap)",
-          "EFA": "iShares MSCI EAFE ETF (Developed International)",
-          "EMXC": "iShares MSCI Emerging Markets ex China ETF",
-      },
-  )
+  bench_descriptions = config.get("benchmark_descriptions", {})
 
   if benchmark_mapping:
     for ticker, details in benchmark_mapping.items():
@@ -185,28 +152,16 @@ with st.sidebar.expander("💡 Benchmark Selection & Mapping Guide"):
     * **Emerging Markets ex-China / India (MSCI/FTSE Ex-China):** Map to **`EMXC`**
     """)
 
-# --- Updated System Architecture & Guide ---
+# --- Dynamic README Guide Loader ---
 with st.sidebar.expander("📖 System Architecture & Guide", expanded=False):
-  st.markdown("""
-    **Core Infrastructure & Governance:**
-    * **Single Source of Truth (`config.json`):** All benchmark mappings, descriptions, and criteria thresholds are loaded directly from GitHub to guarantee persistent cross-session alignment.
-    * **Asset-Class Threshold Profiles:** Dynamically tunes RVOL, 50 SMA distance limits, and 200-day buffer percentages based on target asset classes (Dividends, Covered Calls, Fixed Income, Growth).
-    * **MSCI / FTSE Mapping Engine:** Maps abstract index providers to liquid tradeable proxy ETFs (`SPY`, `QQQ`, `DIA`, `IWM`, `EFA`, `EMXC`).
-
-    ---
-
-    **Engine Workflows:**
-    * **💼 Current Portfolio:** Multi-benchmark regime health monitor & risk-off safe-harbor rotation logic (`SCYB`, `JAAA`, `JPST`).
-    * **🛡️ 90% Core ETF Strategy:** 3-Stage Pipeline: Macro Universe Scan ➔ Intrinsic Valuation & Dip Check ➔ 200-Day Trend Triggers.
-    * **🚀 10% Satellite Stock Strategy:** Custom Screener ➔ Institutional Money Flow (RVOL & Volume Ratio) ➔ Tactical Dip Execution.
-    """)
+  st.markdown(load_readme_guide())
 
 
 # --- Helper: Resolve Benchmark & Dual Description for Ticker ---
 def get_resolved_benchmark_info(ticker):
   t = ticker.upper().strip()
   b_map = config.get("benchmark_mapping", {})
-  b_desc_map = config.get("benchmark_descriptions", bench_descriptions)
+  b_desc_map = config.get("benchmark_descriptions", {})
 
   if t in b_map:
     info = b_map[t]
@@ -271,57 +226,27 @@ def get_benchmark_regime(ticker_symbol):
 # 1. CURRENT PORTFOLIO & ROTATION ENGINE
 # ==========================================
 if strategy_engine == "💼 Current Portfolio & Rotation Engine":
-  st.header("💼 Current Portfolio Holdings & Multi-Benchmark Rotation Matrix")
+  st.header("💼 Current Portfolio Holdings & Action Engine")
   st.markdown(
-      "Real-time benchmark regime analysis governing rotation into risk-off safe"
-      " harbors (`SCYB`, `JAAA`, `JPST`)."
+      "Persistent evaluation of your active holdings (ETFs & stocks) delivering"
+      " precise **BUY, SELL, or HOLD** recommendations."
   )
 
-  curr_input = st.text_input(
-      "Your Active Current Portfolio Holdings (Comma Separated):",
-      placeholder="e.g., JAAA, JPST, SCHD, SPYI, VOO",
+  # Stage 1: Persistent & Editable List of Current Holdings
+  default_holdings = "JAAA, JPST, SCHD, SPYI, QQQI"
+  curr_input = st.text_area(
+      "Stage 1: Persistent Portfolio Watchlist (Comma Separated):",
+      value=default_holdings,
+      height=75,
   )
 
   if curr_input.strip():
     holdings = [t.strip().upper() for t in curr_input.split(",") if t.strip()]
 
-    st.subheader("1. Macro Benchmark Regime Diagnostics")
-    benchmarks = config.get(
-        "benchmarks", ["SPY", "QQQ", "DIA", "IWM", "EFA", "EMXC"]
+    st.subheader(
+        "Stage 2 & 3: Technical Health, Regime Diagnostics & Action Recommendations"
     )
-    rot_data = []
-    for b in benchmarks:
-      try:
-        df = yf.download(
-            b, period="1y", interval="1d", auto_adjust=True, progress=False
-        )
-        if df.empty:
-          continue
-        c = df["Close"].squeeze()
-        price = float(c.iloc[-1])
-        sma50 = float(c.rolling(50).mean().iloc[-1])
-        sma200 = float(c.rolling(200).mean().iloc[-1])
-        regime, action = get_benchmark_regime(b)
-        b_desc = bench_descriptions.get(b, b)
-        rot_data.append({
-            "Benchmark": b,
-            "Benchmark Description": b_desc,
-            "Price": round(price, 2),
-            "50 SMA": round(sma50, 2),
-            "200 SMA": round(sma200, 2),
-            "Regime Status": regime,
-            "Recommended Action": action,
-        })
-      except Exception:
-        pass
-
-    if rot_data:
-      st.dataframe(
-          pd.DataFrame(rot_data), use_container_width=True, hide_index=True
-      )
-
-    st.subheader("2. Active Holdings Institutional & Technical Health")
-    if st.button("Assess Active Portfolio Status", type="primary"):
+    if st.button("Evaluate Portfolio Actions", type="primary"):
       portfolio_results = []
       for t in holdings:
         try:
@@ -344,19 +269,44 @@ if strategy_engine == "💼 Current Portfolio & Rotation Engine":
           bench, t_desc, b_desc = get_resolved_benchmark_info(t)
           regime, guidance = get_benchmark_regime(t)
 
+          # Action recommendation logic
+          if price >= sma200 and rvol >= active_rvol:
+            action = "🟢 BUY / ACCUMULATE"
+            reason = (
+                f"Price (${price:.2f}) is above 200 SMA and RVOL ({rvol:.2f})"
+                " confirms institutional accumulation."
+            )
+          elif price < sma200:
+            action = "🔴 SELL / ROTATE"
+            reason = (
+                f"Price (${price:.2f}) breached 200-day trend support. Risk-off"
+                " rotation recommended."
+            )
+          elif price < sma50:
+            action = "🟡 HOLD / TRIM"
+            reason = (
+                f"Price (${price:.2f}) pulled back below 50 SMA. Monitor trend"
+                " support."
+            )
+          else:
+            action = "🟢 HOLD"
+            reason = (
+                f"Technical structure stable above key moving averages."
+                f" {guidance}"
+            )
+
           portfolio_results.append({
               "Ticker": t,
-              "Ticker Description": t_desc,
+              "Description": t_desc,
               "Price": round(price, 2),
+              "Action": action,
+              "Reason Why": reason,
               "Benchmark": bench,
-              "Benchmark Description": b_desc,
               "RVOL": round(rvol, 2),
-              "Regime Status": regime,
-              "% vs 200 SMA": f"{dist_200:+.2f}%",
-              "Guidance": guidance,
           })
         except Exception as e:
-          st.error(f"Error loading {t}: {e}")
+          st.error(f"Error evaluating {t}: {e}")
+
       if portfolio_results:
         st.dataframe(
             pd.DataFrame(portfolio_results),
@@ -364,7 +314,7 @@ if strategy_engine == "💼 Current Portfolio & Rotation Engine":
             hide_index=True,
         )
   else:
-    st.info("Please enter your current portfolio holdings above to begin.")
+    st.info("Please enter your portfolio holdings above.")
 
 # ==========================================
 # 2. 90% CORE ETF STRATEGY
@@ -373,62 +323,55 @@ elif strategy_engine == "🛡️ 90% Core ETF Strategy":
   st.header("🛡️ 90% Core ETF Allocation Workflow")
 
   core_tab1, core_tab2, core_tab3 = st.tabs([
-      "Stage 1: Core Macro Universe Scan",
+      "Stage 1: Core ETF Watchlist",
       "Stage 2: Intrinsic Value & Dip Filter",
       "Stage 3: 200-Day Trend Triggers",
   ])
 
   with core_tab1:
-    st.subheader("Stage 1: Scan Global Macro Universe")
-    selected_bench = st.selectbox(
-        "Select Benchmark for Relative Strength Comparison",
-        config.get("benchmarks", ["SPY"]),
+    st.subheader("Stage 1: Persistent Core ETF Watchlist & Mapping Audit")
+    default_core = "SCHD, SPYI, QQQI, JAAA, JPST"
+    core_input = st.text_area(
+        "Edit Core ETF Watchlist (Comma Separated):",
+        value=default_core,
+        height=75,
     )
-    universe = config.get("global_macro_universe", {})
 
-    if st.button("Run Core ETF Macro Scan", type="primary"):
-      scan_rows = []
-      for name, sym in universe.items():
-        try:
-          df = yf.download(
-              [sym, selected_bench],
-              period="6mo",
-              interval="1d",
-              auto_adjust=True,
-              progress=False,
-          )["Close"]
-          if sym in df.columns and selected_bench in df.columns:
-            ret_sym = (df[sym].iloc[-1] / df[sym].iloc[0]) - 1
-            ret_bench = (
-                df[selected_bench].iloc[-1] / df[selected_bench].iloc[0]
-            ) - 1
-            alpha = ret_sym - ret_bench
-            scan_rows.append({
-                "Asset": name,
-                "Ticker": sym,
-                "6M Return": f"{ret_sym*100:.2f}%",
-                "Alpha vs Benchmark": f"{alpha*100:+.2f}%",
-            })
-        except Exception:
-          pass
-      if scan_rows:
-        df_scan = pd.DataFrame(scan_rows)
-        st.dataframe(df_scan, use_container_width=True, hide_index=True)
+    core_tickers = [
+        t.strip().upper() for t in core_input.split(",") if t.strip()
+    ]
+
+    # Explicit Mapping Alert Check
+    b_map = config.get("benchmark_mapping", {})
+    benchmarks_list = config.get("benchmarks", [])
+    unmapped_core = [
+        t
+        for t in core_tickers
+        if t not in b_map and t not in benchmarks_list
+    ]
+
+    if unmapped_core:
+      st.error(
+          f"🚨 **Unmapped Tickers Detected:** {', '.join(unmapped_core)}. Please"
+          " add them to `benchmark_mapping` in your `config.json` file!"
+      )
+    else:
+      st.success(
+          "✅ All Stage 1 Core ETFs are successfully mapped against active"
+          " benchmark proxies."
+      )
+
+    st.markdown("Verified tickers automatically pass down to Stages 2 and 3.")
 
   with core_tab2:
-    st.subheader("Stage 2: Intrinsic Value & Institutional Dip Filter")
-    core_watchlist_input = st.text_input(
-        "Enter Core ETFs to Evaluate (Comma-Separated):",
-        placeholder="e.g., SCHD, VOO, QQQI, SPYI",
+    st.subheader(
+        "Stage 2: Intrinsic Value & Institutional Dip Filter (Passed from Stage"
+        " 1)"
     )
-
-    if core_watchlist_input.strip():
-      tickers = [
-          t.strip().upper() for t in core_watchlist_input.split(",") if t.strip()
-      ]
+    if core_tickers:
       if st.button("Run Intrinsic Valuation & Dip Check", type="primary"):
         iv_results = []
-        for t in tickers:
+        for t in core_tickers:
           try:
             df = yf.download(
                 t, period="1y", interval="1d", auto_adjust=True, progress=False
@@ -460,7 +403,7 @@ elif strategy_engine == "🛡️ 90% Core ETF Strategy":
                 )
             )
 
-            bench, t_desc, b_desc = get_resolved_benchmark_info(t)
+            bench, t_desc, _ = get_resolved_benchmark_info(t)
 
             iv_results.append({
                 "Ticker": t,
@@ -478,20 +421,17 @@ elif strategy_engine == "🛡️ 90% Core ETF Strategy":
           st.dataframe(
               pd.DataFrame(iv_results), use_container_width=True, hide_index=True
           )
+    else:
+      st.warning("Please configure your tickers in Stage 1.")
 
   with core_tab3:
-    st.subheader("Stage 3: 200-Day Macro Trend Triggers")
-    core_trig_input = st.text_input(
-        "Enter Core ETFs for Trend Trigger Validation (Comma-Separated):",
-        placeholder="e.g., SCHD, VOO, QQQI",
+    st.subheader(
+        "Stage 3: 200-Day Macro Trend Triggers (Passed from Stage 1)"
     )
-    if core_trig_input.strip():
-      tickers = [
-          t.strip().upper() for t in core_trig_input.split(",") if t.strip()
-      ]
+    if core_tickers:
       if st.button("Run Trend Trigger Audit", type="primary"):
         trigger_rows = []
-        for t in tickers:
+        for t in core_tickers:
           try:
             df = yf.download(
                 t, period="1y", interval="1d", auto_adjust=True, progress=False
@@ -522,77 +462,47 @@ elif strategy_engine == "🛡️ 90% Core ETF Strategy":
               use_container_width=True,
               hide_index=True,
           )
+    else:
+      st.warning("Please configure your tickers in Stage 1.")
 
 # ==========================================
-# 3. 10% SATELLITE STOCK STRATEGY
+# 3. 10% SATELLITE STOCK STRATEGY (SWING TRADE STOCKS)
 # ==========================================
 elif strategy_engine == "🚀 10% Satellite Stock Strategy":
-  st.header("🚀 10% Satellite Stock Strategy Workflow")
+  st.header("🚀 10% Satellite Stock Strategy: Swing Trade Stocks")
 
-  sat_tab1, sat_tab2 = st.tabs([
-      "Stage 1: Custom Stock Universe Scan",
+  sat_tab1, sat_tab2, sat_tab3 = st.tabs([
+      "Stage 1: Satellite Stock Watchlist",
       "Stage 2: Institutional Accumulation & Dip Evaluation",
+      "Stage 3: STP Dynamic Rotation (50 SMA & 20 EMA)",
   ])
 
   with sat_tab1:
-    st.subheader("Stage 1: Scan Custom Equity Candidates")
-    custom_scan_input = st.text_input(
-        "Enter Custom Stock Tickers to Screen (Comma-Separated):",
-        placeholder="e.g., NVDA, META, AMZN, MSFT, AAPL",
+    st.subheader("Stage 1: Persistent Satellite Equity Watchlist")
+    default_sat = "NVDA, META, AMZN, MSFT, AAPL"
+    sat_input = st.text_area(
+        "Edit Satellite Stock Watchlist (Comma Separated):",
+        value=default_sat,
+        height=75,
     )
-
-    if st.button("Run Stock Screener", type="primary"):
-      scan_universe = (
-          [s.strip().upper() for s in custom_scan_input.split(",") if s.strip()]
-          if custom_scan_input.strip()
-          else []
-      )
-
-      if not scan_universe:
-        st.warning("Please enter tickers above to scan your custom universe.")
-      else:
-        qualified = []
-        with st.spinner("Scanning equities for volume and trend health..."):
-          for t in scan_universe:
-            try:
-              df = yf.download(
-                  t, period="6mo", interval="1d", auto_adjust=True, progress=False
-              )
-              if not df.empty and len(df) > 50:
-                c = df["Close"].squeeze()
-                p = float(c.iloc[-1])
-                sma50 = float(c.rolling(50).mean().iloc[-1])
-                dist = (p - sma50) / sma50
-                if abs(dist) <= max_dist_sma:
-                  qualified.append(t)
-            except Exception:
-              pass
-        if qualified:
-          st.success(
-              f"Discovered {len(qualified)} qualified candidates: "
-              f"{', '.join(qualified)}"
-          )
-        else:
-          st.info("No stocks met the strict 50 SMA distance threshold.")
+    sat_tickers = [
+        t.strip().upper() for t in sat_input.split(",") if t.strip()
+    ]
+    st.success(
+        f"Loaded {len(sat_tickers)} active satellite stocks. Passed to Stages 2"
+        " and 3."
+    )
 
   with sat_tab2:
     st.subheader(
         "Stage 2: Institutional Accumulation / Distribution & Dip Evaluation"
     )
-    sat_input = st.text_input(
-        "Enter Candidate Watchlist for Institutional Evaluation"
-        " (Comma-Separated):",
-        placeholder="e.g., NVDA, META, AMZN",
-    )
-
-    if sat_input.strip():
-      tickers = [t.strip().upper() for t in sat_input.split(",") if t.strip()]
-
+    if sat_tickers:
       if st.button(
           "Run Institutional Dip & Accumulation Evaluation", type="primary"
       ):
         eval_rows = []
-        for t in tickers:
+        for t in sat_tickers:
           try:
             df = yf.download(
                 t, period="1y", interval="1d", auto_adjust=True, progress=False
@@ -634,4 +544,51 @@ elif strategy_engine == "🚀 10% Satellite Stock Strategy":
               pd.DataFrame(eval_rows), use_container_width=True, hide_index=True
           )
     else:
-      st.info("Please enter candidate tickers above to begin evaluation.")
+      st.warning("Please configure your watchlist in Stage 1.")
+
+  with sat_tab3:
+    st.subheader(
+        "Stage 3: STP Swing Trade Portfolio Dynamic Rotation (50 SMA & 20 EMA)"
+    )
+    st.markdown(
+        "_Ready for upcoming Swing Trade Portfolio (STP) module integration._"
+    )
+    if sat_tickers:
+      if st.button("Run STP Dynamic Rotation Check", type="primary"):
+        stp_rows = []
+        for t in sat_tickers:
+          try:
+            df = yf.download(
+                t, period="6mo", interval="1d", auto_adjust=True, progress=False
+            )
+            if df.empty:
+              continue
+            c = df["Close"].squeeze()
+            price = float(c.iloc[-1])
+            ema20 = float(c.ewm(span=20, adjust=False).mean().iloc[-1])
+            sma50 = float(c.rolling(50).mean().iloc[-1])
+
+            signal = (
+                "🟢 BULLISH CROSS (Price > 20 EMA > 50 SMA)"
+                if price > ema20 and ema20 > sma50
+                else (
+                    "🟡 CAUTION / PULLBACK"
+                    if price > sma50
+                    else "🔴 BEARISH / EXIT"
+                )
+            )
+            stp_rows.append({
+                "Ticker": t,
+                "Price": round(price, 2),
+                "20 EMA": round(ema20, 2),
+                "50 SMA": round(sma50, 2),
+                "STP Signal": signal,
+            })
+          except Exception:
+            pass
+        if stp_rows:
+          st.dataframe(
+              pd.DataFrame(stp_rows), use_container_width=True, hide_index=True
+          )
+    else:
+      st.warning("Please configure your watchlist in Stage 1.")
