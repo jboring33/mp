@@ -7,6 +7,7 @@ import yfinance as yf
 
 # Page Configuration
 st.set_page_config(page_title="MP Master Hub", page_icon="🏛️", layout="wide")
+st.query_params.clear()
 
 MASTER_CONFIG_URL = (
     "https://raw.githubusercontent.com/jboring33/MP/main/config.json"
