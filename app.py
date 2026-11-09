@@ -2,16 +2,16 @@
 Manage Portfolio (MP) - Institutional Flow & Asset Revesting Dashboard
 ---------------------------------------------------------------------
 Framework: Python 3.11 + Streamlit
-Built around Chris Vermeulen's Technical Traders (TTT) top-down workflow:
+Built around a quantitative top-down asset revesting workflow:
 1. Macro Market Gauges (SPY, QQQ, DIA, ^VIX) evaluated on WEEKLY trends
    (10-week & 30-week EMAs) to eliminate daily noise and target low turnover.
 2. 2nd-Tier Institutional Flow Engine:
    - Equal-Weighted vs. Cap-Weighted Ratio Analysis (RSP/SPY)
    - Intermarket Relative Strength Ratios (XLY/XLP, SPHB/SPLV, IWM/SPY, IAU/TLT)
    - Institutional Sub-Sectors (SMH, IGV, CIBR, KRE)
-3. Daily 20 EMA Trailing Stops & RVOL/Overextended Whipsaw Filters.
+3. Asset-Class-Specific Whipsaw Filters & Daily 20 EMA Trailing Stops.
 
-Persistent state is maintained via `config.json`.
+Persistent state and scan universes are maintained via `config.json`.
 """
 
 import json
@@ -25,36 +25,89 @@ CONFIG_FILE = "config.json"
 
 DEFAULT_CONFIG = {
     "whipsaw_params": {
-        "rvol_threshold": 1.2,
-        "max_dist_50sma_pct": 8.0,
-        "min_up_down_vol_ratio": 1.1,
         "vix_warning_level": 22.0,
         "momentum_lookback_days": 63,
-    }
-}
-
-# Categorized Sector & Asset Class Mapping by Benchmark Engine
-INDEX_MAPPINGS = {
-    # Broad S&P 500 Sectors (SPY)
-    "XLK": {"name": "Technology SPDR", "benchmark": "SPY", "type": "Sector"},
-    "XLF": {"name": "Financials SPDR", "benchmark": "SPY", "type": "Sector"},
-    "XLE": {"name": "Energy SPDR", "benchmark": "SPY", "type": "Sector"},
-    "XLV": {"name": "Healthcare SPDR", "benchmark": "SPY", "type": "Sector"},
-    "XLI": {"name": "Industrials SPDR", "benchmark": "SPY", "type": "Sector"},
-    "XLP": {"name": "Consumer Staples SPDR", "benchmark": "SPY", "type": "Sector"},
-    "XLU": {"name": "Utilities SPDR", "benchmark": "SPY", "type": "Sector"},
-    "XLRE": {"name": "Real Estate SPDR", "benchmark": "SPY", "type": "Sector"},
-    "XLC": {"name": "Communication Services", "benchmark": "SPY", "type": "Sector"},
-    "XLY": {"name": "Consumer Discretionary", "benchmark": "SPY", "type": "Sector"},
-    "XLB": {"name": "Materials SPDR", "benchmark": "SPY", "type": "Sector"},
-    # Institutional Sub-Sectors & Leadership Triggers
-    "SMH": {"name": "Semiconductors ETF", "benchmark": "QQQ", "type": "Sub-Sector"},
-    "IGV": {"name": "Software & Cloud ETF", "benchmark": "QQQ", "type": "Sub-Sector"},
-    "CIBR": {"name": "Cybersecurity ETF", "benchmark": "QQQ", "type": "Sub-Sector"},
-    "KRE": {"name": "Regional Banking ETF", "benchmark": "DIA", "type": "Sub-Sector"},
-    # Independent Commodities & Safe-Havens
-    "IAU": {"name": "Gold / Precious Metals", "benchmark": "INDEPENDENT", "type": "Asset"},
-    "TLT": {"name": "Long-Term Treasuries", "benchmark": "INDEPENDENT", "type": "Asset"},
+    },
+    "asset_profiles": {
+        "High-Beta": {"max_dist_50sma_pct": 12.0, "rvol_threshold": 1.3},
+        "Core": {"max_dist_50sma_pct": 7.0, "rvol_threshold": 1.1},
+        "Commodity": {"max_dist_50sma_pct": 10.0, "rvol_threshold": 1.0},
+    },
+    "watchlist_universe": {
+        "XLK": {
+            "name": "Technology SPDR",
+            "benchmark": "SPY",
+            "profile": "High-Beta",
+        },
+        "XLF": {
+            "name": "Financials SPDR",
+            "benchmark": "SPY",
+            "profile": "Core",
+        },
+        "XLE": {"name": "Energy SPDR", "benchmark": "SPY", "profile": "Core"},
+        "XLV": {
+            "name": "Healthcare SPDR",
+            "benchmark": "SPY",
+            "profile": "Core",
+        },
+        "XLI": {
+            "name": "Industrials SPDR",
+            "benchmark": "SPY",
+            "profile": "Core",
+        },
+        "XLP": {
+            "name": "Consumer Staples SPDR",
+            "benchmark": "SPY",
+            "profile": "Core",
+        },
+        "XLU": {"name": "Utilities SPDR", "benchmark": "SPY", "profile": "Core"},
+        "XLRE": {
+            "name": "Real Estate SPDR",
+            "benchmark": "SPY",
+            "profile": "Core",
+        },
+        "XLC": {
+            "name": "Communication Services",
+            "benchmark": "SPY",
+            "profile": "High-Beta",
+        },
+        "XLY": {
+            "name": "Consumer Discretionary",
+            "benchmark": "SPY",
+            "profile": "High-Beta",
+        },
+        "XLB": {"name": "Materials SPDR", "benchmark": "SPY", "profile": "Core"},
+        "SMH": {
+            "name": "Semiconductors ETF",
+            "benchmark": "QQQ",
+            "profile": "High-Beta",
+        },
+        "IGV": {
+            "name": "Software & Cloud ETF",
+            "benchmark": "QQQ",
+            "profile": "High-Beta",
+        },
+        "CIBR": {
+            "name": "Cybersecurity ETF",
+            "benchmark": "QQQ",
+            "profile": "High-Beta",
+        },
+        "KRE": {
+            "name": "Regional Banking ETF",
+            "benchmark": "DIA",
+            "profile": "Core",
+        },
+        "IAU": {
+            "name": "Gold / Precious Metals",
+            "benchmark": "INDEPENDENT",
+            "profile": "Commodity",
+        },
+        "TLT": {
+            "name": "Long-Term Treasuries",
+            "benchmark": "INDEPENDENT",
+            "profile": "Commodity",
+        },
+    },
 }
 
 
@@ -179,11 +232,11 @@ def evaluate_sector_asset(
     info,
     daily_prices,
     daily_vols,
-    params,
+    asset_profiles,
     macro_statuses,
     vix_risk_off,
 ):
-  """Audits an individual sector/sub-sector applying benchmark alignment, 20-day EMA rules, and flow filters."""
+  """Audits an individual sector/sub-sector applying asset-class-specific whipsaw filters."""
   if ticker not in daily_prices.columns:
     return {
         "Ticker": ticker,
@@ -207,6 +260,14 @@ def evaluate_sector_asset(
   )
 
   benchmark = info["benchmark"]
+  profile_key = info.get("profile", "Core")
+  profile_params = asset_profiles.get(
+      profile_key, asset_profiles.get("Core", {})
+  )
+
+  max_dist_pct = profile_params.get("max_dist_50sma_pct", 7.0)
+  rvol_thresh = profile_params.get("rvol_threshold", 1.1)
+
   bench_status = macro_statuses.get(benchmark, "RISK-ON 🟢")
 
   if (
@@ -239,17 +300,19 @@ def evaluate_sector_asset(
   is_hold = False
 
   dist_from_50 = ((curr_price - sma50) / sma50) * 100.0
-  if dist_from_50 > params["max_dist_50sma_pct"]:
+  if dist_from_50 > max_dist_pct:
     is_hold = True
-    reasons.append(f"Overextended ({dist_from_50:.1f}% from 50 SMA)")
+    reasons.append(
+        f"Overextended ({dist_from_50:.1f}% > {max_dist_pct}% from 50 SMA)"
+    )
 
   if v_series is not None and len(v_series) >= 20:
     recent_vol = v_series.iloc[-1]
     vol_20_avg = v_series.tail(20).mean()
     rvol = recent_vol / vol_20_avg if vol_20_avg > 0 else 1.0
-    if rvol < params["rvol_threshold"]:
+    if rvol < rvol_thresh:
       is_hold = True
-      reasons.append(f"Low RVOL ({rvol:.2f}x < {params['rvol_threshold']}x)")
+      reasons.append(f"Low RVOL ({rvol:.2f}x < {rvol_thresh}x)")
 
   if is_hold:
     status_label = "HOLD 🟡"
@@ -276,16 +339,18 @@ def evaluate_sector_asset(
 # Streamlit Interface Implementation
 # -------------------------------------------------------------------------
 def main():
-  st.set_page_config(
-      page_title="Manage Portfolio (MP) — TTT Framework", layout="wide"
-  )
-  st.title(
-      "📈 Manage Portfolio (MP) — Technical Traders Asset Revesting Dashboard"
-  )
+  st.set_page_config(page_title="Manage Portfolio (MP)", layout="wide")
+  st.title("📈 Manage Portfolio (MP) — Asset Revesting Dashboard")
 
   # Load State Configuration
   config = load_config()
   w_params = config.get("whipsaw_params", DEFAULT_CONFIG["whipsaw_params"])
+  asset_profiles = config.get(
+      "asset_profiles", DEFAULT_CONFIG["asset_profiles"]
+  )
+  watchlist_universe = config.get(
+      "watchlist_universe", DEFAULT_CONFIG["watchlist_universe"]
+  )
 
   # Sidebar Controls
   st.sidebar.header("⚙️ Institutional Risk & VIX Thresholds")
@@ -296,16 +361,6 @@ def main():
       float(w_params["vix_warning_level"]),
       1.0,
   )
-  rvol_thresh = st.sidebar.slider(
-      "Min RVOL Threshold", 0.8, 3.0, float(w_params["rvol_threshold"]), 0.1
-  )
-  max_dist = st.sidebar.slider(
-      "Max Dist from 50 SMA (%)",
-      3.0,
-      20.0,
-      float(w_params["max_dist_50sma_pct"]),
-      0.5,
-  )
   lookback = st.sidebar.slider(
       "Momentum Lookback (Days)",
       20,
@@ -314,19 +369,47 @@ def main():
       1,
   )
 
-  updated_params = {
-      "rvol_threshold": rvol_thresh,
-      "max_dist_50sma_pct": max_dist,
-      "min_up_down_vol_ratio": float(w_params.get("min_up_down_vol_ratio", 1.1)),
+  st.sidebar.markdown("---")
+  st.sidebar.header("🛡️ Asset-Class Profile Thresholds")
+
+  updated_profiles = {}
+  for profile_name, p_vals in asset_profiles.items():
+    st.sidebar.subheader(f"{profile_name} Profile")
+    max_d = st.sidebar.slider(
+        f"[{profile_name}] Max Dist 50 SMA (%)",
+        3.0,
+        20.0,
+        float(p_vals["max_dist_50sma_pct"]),
+        0.5,
+    )
+    r_vol = st.sidebar.slider(
+        f"[{profile_name}] Min RVOL",
+        0.8,
+        2.5,
+        float(p_vals["rvol_threshold"]),
+        0.1,
+    )
+    updated_profiles[profile_name] = {
+        "max_dist_50sma_pct": max_d,
+        "rvol_threshold": r_vol,
+    }
+
+  updated_w_params = {
       "vix_warning_level": vix_thresh,
       "momentum_lookback_days": lookback,
   }
-  if updated_params != w_params:
-    config["whipsaw_params"] = updated_params
+
+  # Save if sidebar config changed
+  if (
+      updated_w_params != w_params
+      or updated_profiles != asset_profiles
+  ):
+    config["whipsaw_params"] = updated_w_params
+    config["asset_profiles"] = updated_profiles
     save_config(config)
 
   # Fetch Daily & Weekly Market Data
-  all_tickers = list(INDEX_MAPPINGS.keys())
+  all_tickers = list(watchlist_universe.keys())
   daily_prices, daily_vols, weekly_prices = fetch_market_data(all_tickers)
 
   # VIX Volatility Filter
@@ -452,13 +535,13 @@ def main():
   )
 
   results = []
-  for ticker, info in INDEX_MAPPINGS.items():
+  for ticker, info in watchlist_universe.items():
     res = evaluate_sector_asset(
         ticker,
         info,
         daily_prices,
         daily_vols,
-        updated_params,
+        updated_profiles,
         macro_statuses,
         vix_risk_off,
     )
