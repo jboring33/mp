@@ -1,9 +1,39 @@
 {
     "whipsaw_params": {
-        "rvol_threshold": 1.2,
-        "max_dist_50sma_pct": 8.0,
-        "min_up_down_vol_ratio": 1.1,
         "vix_warning_level": 22.0,
         "momentum_lookback_days": 63
+    },
+    "asset_profiles": {
+        "High-Beta": {
+            "max_dist_50sma_pct": 12.0,
+            "rvol_threshold": 1.3
+        },
+        "Core": {
+            "max_dist_50sma_pct": 7.0,
+            "rvol_threshold": 1.1
+        },
+        "Commodity": {
+            "max_dist_50sma_pct": 10.0,
+            "rvol_threshold": 1.0
+        }
+    },
+    "watchlist_universe": {
+        "XLK": {"name": "Technology SPDR", "benchmark": "SPY", "profile": "High-Beta"},
+        "XLF": {"name": "Financials SPDR", "benchmark": "SPY", "profile": "Core"},
+        "XLE": {"name": "Energy SPDR", "benchmark": "SPY", "profile": "Core"},
+        "XLV": {"name": "Healthcare SPDR", "benchmark": "SPY", "profile": "Core"},
+        "XLI": {"name": "Industrials SPDR", "benchmark": "SPY", "profile": "Core"},
+        "XLP": {"name": "Consumer Staples SPDR", "benchmark": "SPY", "profile": "Core"},
+        "XLU": {"name": "Utilities SPDR", "benchmark": "SPY", "profile": "Core"},
+        "XLRE": {"name": "Real Estate SPDR", "benchmark": "SPY", "profile": "Core"},
+        "XLC": {"name": "Communication Services", "benchmark": "SPY", "profile": "High-Beta"},
+        "XLY": {"name": "Consumer Discretionary", "benchmark": "SPY", "profile": "High-Beta"},
+        "XLB": {"name": "Materials SPDR", "benchmark": "SPY", "profile": "Core"},
+        "SMH": {"name": "Semiconductors ETF", "benchmark": "QQQ", "profile": "High-Beta"},
+        "IGV": {"name": "Software & Cloud ETF", "benchmark": "QQQ", "profile": "High-Beta"},
+        "CIBR": {"name": "Cybersecurity ETF", "benchmark": "QQQ", "profile": "High-Beta"},
+        "KRE": {"name": "Regional Banking ETF", "benchmark": "DIA", "profile": "Core"},
+        "IAU": {"name": "Gold / Precious Metals", "benchmark": "INDEPENDENT", "profile": "Commodity"},
+        "TLT": {"name": "Long-Term Treasuries", "benchmark": "INDEPENDENT", "profile": "Commodity"}
     }
 }
