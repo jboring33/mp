@@ -1,11 +1,11 @@
 """
-Manage Portfolio (MP) - Asset Revesting & Quantitative Trend Audit Dashboard
---------------------------------------------------------------------------
+Manage Portfolio (MP) - TTT Asset Revesting & Sector Rotation Dashboard
+----------------------------------------------------------------------
 Framework: Python 3.11 + Streamlit
-Integrates multi-index benchmarking (SPY, QQQ, DIA), VIX volatility filtering,
-institutional flow whipsaw metrics, and auto-mapping of tickers to benchmarks.
-
-Persistent state is maintained via `config.json`.
+Built strictly around Chris Vermeulen's Technical Traders (TTT) top-down workflow:
+1. Macro Market Gauge & VIX Risk Filter
+2. Dynamic Sector & Asset Universe Momentum Scanning
+3. 20-Day EMA & Institutional Whipsaw Signal Filtering
 """
 
 import json
@@ -18,46 +18,31 @@ import yfinance as yf
 CONFIG_FILE = "config.json"
 
 DEFAULT_CONFIG = {
-    "watchlist": [
-        "SPYI",
-        "QQQI",
-        "SCHD",
-        "JAAA",
-        "JPST",
-        "VOO",
-        "VGT",
-        "NVDA",
-        "META",
-        "AMZN",
-        "MSFT",
-        "AAPL",
-    ],
     "whipsaw_params": {
         "rvol_threshold": 1.2,
         "max_dist_50sma_pct": 8.0,
         "min_up_down_vol_ratio": 1.1,
         "sma200_buffer_pct": 1.5,
         "vix_warning_level": 22.0,
-    },
+        "momentum_lookback_days": 63,
+    }
 }
 
-# Explicit sector/asset class mapping to U.S. Major Indexes
-INDEX_MAPPINGS = {
-    # Tech & Growth -> QQQ
-    "QQQI": "QQQ",
-    "VGT": "QQQ",
-    "NVDA": "QQQ",
-    "META": "QQQ",
-    "AMZN": "QQQ",
-    "MSFT": "QQQ",
-    "AAPL": "QQQ",
-    # Broad Core & Dividend -> SPY
-    "SPYI": "SPY",
-    "VOO": "SPY",
-    "SCHD": "SPY",
-    # Ultra-short / Fixed Income -> SPY (Baseline broad risk engine)
-    "JAAA": "SPY",
-    "JPST": "SPY",
+# Standard Institutional Sector & Asset Class Universe scanned by TTT models
+SECTOR_UNIVERSE = {
+    "XLK": "Technology Sector",
+    "XLF": "Financial Sector",
+    "XLE": "Energy Sector",
+    "XLV": "Healthcare Sector",
+    "XLI": "Industrials Sector",
+    "XLP": "Consumer Staples Sector",
+    "XLU": "Utilities Sector",
+    "XLRE": "Real Estate Sector",
+    "XLC": "Communication Services",
+    "XLY": "Consumer Discretionary",
+    "XLB": "Materials Sector",
+    "IAU": "Gold / Precious Metals",
+    "TLT": "Long-Term Treasuries (Defensive)",
 }
 
 
@@ -81,9 +66,7 @@ def save_config(config_data):
 @st.cache_data(ttl=300)
 def fetch_market_data(tickers):
   """Downloads 1-year historical price and volume data via yfinance."""
-  all_tickers = list(
-      set(tickers + ["SPY", "QQQ", "DIA", "^VIX", "VOO", "VGT"])
-  )
+  all_tickers = list(set(tickers + ["SPY", "QQQ", "DIA", "^VIX"]))
   data = yf.download(
       all_tickers, period="1y", interval="1d", auto_adjust=True, progress=False
   )
@@ -101,7 +84,7 @@ def fetch_market_data(tickers):
 def evaluate_index_status(
     prices, benchmark_ticker, vix_level, vix_threshold=22.0
 ):
-  """Determines BUY (Green), HOLD (Yellow), or SELL (Red) for major indexes."""
+  """Determines BUY (Green), HOLD (Yellow), or SELL (Red) for major macro indexes."""
   if benchmark_ticker not in prices.columns:
     return "SELL", 0.0, 0.0
 
@@ -110,27 +93,29 @@ def evaluate_index_status(
   ema20 = series.ewm(span=20, adjust=False).mean().iloc[-1]
   sma50 = series.rolling(window=50).mean().iloc[-1]
 
-  # Immediate exit if below 20 EMA or if market volatility spikes severely
-  if current_price < ema20:
+  if current_price < ema20 or vix_level >= vix_threshold:
     status = "SELL"
-  elif current_price >= ema20 and current_price >= sma50:
-    status = "BUY" if vix_level < vix_threshold else "HOLD"
+  elif (
+      current_price >= ema20
+      and current_price >= sma50
+      and vix_level < vix_threshold
+  ):
+    status = "BUY"
   else:
     status = "HOLD"
 
   return status, current_price, ema20
 
 
-def evaluate_ticker_with_whipsaw_filters(
-    ticker, prices, volumes, mapped_index, params
-):
-  """Audits an individual ticker applying 20 EMA rules and institutional flow filters."""
+def evaluate_sector_asset(ticker, description, prices, volumes, params, macro_risk_off):
+  """Audits a sector or asset class using TTT rules and institutional flow filters."""
   if ticker not in prices.columns:
     return {
         "Ticker": ticker,
-        "Mapped Index": mapped_index,
+        "Asset / Sector Name": description,
         "Status": "UNKNOWN",
-        "Reason": "No Data",
+        "Action": "No Data Available",
+        "Reason": "Missing ticker history",
     }
 
   p_series = prices[ticker].dropna()
@@ -149,16 +134,28 @@ def evaluate_ticker_with_whipsaw_filters(
       else curr_price
   )
 
-  # Core Axiom: Below 20 EMA -> Immediate SELL
+  # Macro Risk-Off / High VIX Trigger -> Command Capital to Move to Sidelines (Cash)
+  if macro_risk_off and ticker not in ["IAU", "TLT"]:
+    return {
+        "Ticker": ticker,
+        "Asset / Sector Name": description,
+        "Price": f"${curr_price:.2f}",
+        "20 EMA": f"${ema20:.2f}",
+        "Status": "MOVE TO SIDELINES 💵",
+        "Action": "Raise Cash / Capital Protection",
+        "Reason": "Macro VIX / Market Gauge trigger mandates Sidelines",
+    }
+
+  # TTT Core Axiom: Below 20 EMA -> Immediate SELL / Exit
   if curr_price < ema20:
     return {
         "Ticker": ticker,
-        "Mapped Index": mapped_index,
+        "Asset / Sector Name": description,
         "Price": f"${curr_price:.2f}",
         "20 EMA": f"${ema20:.2f}",
         "Status": "SELL 🔴",
         "Action": "Exit Position / Avoid Entry",
-        "Reason": "Price below 20 EMA filter",
+        "Reason": "Price below 20 EMA trend filter",
     }
 
   # Whipsaw & Institutional Flow Checks
@@ -206,12 +203,12 @@ def evaluate_ticker_with_whipsaw_filters(
     reason_str = "; ".join(reasons)
   else:
     status_label = "BUY 🟢"
-    action = "Strong Technical Trend Active"
+    action = "Strong Sector Leadership Active"
     reason_str = "All Trend & Flow Criteria Satisfied"
 
   return {
       "Ticker": ticker,
-      "Mapped Index": mapped_index,
+      "Asset / Sector Name": description,
       "Price": f"${curr_price:.2f}",
       "20 EMA": f"${ema20:.2f}",
       "Status": status_label,
@@ -225,42 +222,18 @@ def evaluate_ticker_with_whipsaw_filters(
 # -------------------------------------------------------------------------
 def main():
   st.set_page_config(
-      page_title="Manage Portfolio (MP)", layout="wide"
+      page_title="Manage Portfolio (MP) — TTT Framework", layout="wide"
   )
-  st.title("📈 Manage Portfolio (MP) — Trend & Asset Revesting Dashboard")
+  st.title(
+      "📈 Manage Portfolio (MP) — Technical Traders Asset Revesting Dashboard"
+  )
 
   # Load State Configuration
   config = load_config()
-  watchlist = config.get("watchlist", DEFAULT_CONFIG["watchlist"])
   w_params = config.get("whipsaw_params", DEFAULT_CONFIG["whipsaw_params"])
 
-  # Sidebar: Watchlist Management & Whipsaw Controls
-  st.sidebar.header("📋 Watchlist Configuration")
-  new_ticker = (
-      st.sidebar.text_input("Add Ticker to Watchlist:")
-      .strip()
-      .upper()
-  )
-  if st.sidebar.button("Add Ticker"):
-    if new_ticker and new_ticker not in watchlist:
-      watchlist.append(new_ticker)
-      config["watchlist"] = watchlist
-      save_config(config)
-      st.sidebar.success(f"Added {new_ticker}")
-      st.rerun()
-
-  ticker_to_remove = st.sidebar.selectbox(
-      "Remove Ticker:", options=["None"] + watchlist
-  )
-  if st.sidebar.button("Remove Selected") and ticker_to_remove != "None":
-    watchlist.remove(ticker_to_remove)
-    config["watchlist"] = watchlist
-    save_config(config)
-    st.sidebar.warning(f"Removed {ticker_to_remove}")
-    st.rerun()
-
-  st.sidebar.markdown("---")
-  st.sidebar.header("⚙️ Institutional Flow Thresholds")
+  # Sidebar: Institutional Flow & VIX Rules Controls
+  st.sidebar.header("⚙️ Institutional Flow & VIX Rules")
   rvol_thresh = st.sidebar.slider(
       "Min RVOL Threshold", 0.8, 3.0, float(w_params["rvol_threshold"]), 0.1
   )
@@ -279,35 +252,46 @@ def main():
       0.1,
   )
   vix_thresh = st.sidebar.slider(
-      "VIX Warning Level",
+      "VIX Risk Threshold",
       15.0,
       40.0,
       float(w_params["vix_warning_level"]),
       1.0,
   )
+  lookback = st.sidebar.slider(
+      "Momentum Lookback (Days)",
+      20,
+      126,
+      int(w_params.get("momentum_lookback_days", 63)),
+      1,
+  )
 
-  # Update configuration if sidebar parameters changed
   updated_params = {
       "rvol_threshold": rvol_thresh,
       "max_dist_50sma_pct": max_dist,
       "min_up_down_vol_ratio": min_ratio,
       "sma200_buffer_pct": float(w_params.get("sma200_buffer_pct", 1.5)),
       "vix_warning_level": vix_thresh,
+      "momentum_lookback_days": lookback,
   }
   if updated_params != w_params:
     config["whipsaw_params"] = updated_params
     save_config(config)
 
-  # Download Market Data
-  prices, volumes = fetch_market_data(watchlist)
+  # Download Market Data for Macro Indexes + Entire Sector Universe
+  all_scan_tickers = list(SECTOR_UNIVERSE.keys())
+  prices, volumes = fetch_market_data(all_scan_tickers)
 
-  # VIX Volatility Section
+  # VIX Volatility Indicator Check
   vix_level = (
       prices["^VIX"].iloc[-1] if "^VIX" in prices.columns else 15.0
   )
+  vix_risk_off = vix_level >= vix_thresh
 
-  # 1. Macro Environment Gauges Section
-  st.subheader("1. U.S. Macro Environment Gauges")
+  # 1. Macro Environment Gauges Section (TTT Market Gauge)
+  st.subheader(
+      "1. U.S. Macro Environment Gauges (Market Gauge & VIX Risk Filter)"
+  )
   col_vix, col_spy, col_qqq, col_dia = st.columns(4)
 
   spy_status, spy_p, spy_e = evaluate_index_status(
@@ -321,12 +305,15 @@ def main():
   )
 
   with col_vix:
-    vix_color = "off" if vix_level < vix_thresh else "inverse"
+    vix_color = "off" if not vix_risk_off else "inverse"
     st.metric(
         label="CBOE Volatility Index (^VIX)",
         value=f"{vix_level:.2f}",
-        delta="NORMAL" if vix_level < vix_thresh else "HIGH VOLATILITY",
+        delta="NORMAL (Risk-On)" if not vix_risk_off else "ELEVATED (Risk-Off)",
         delta_color=vix_color,
+    )
+    st.markdown(
+        f"**VIX Rule:** `{'SPIKE > ' + str(vix_thresh) + ' -> EQUITY RISK-OFF' if vix_risk_off else 'Normal Range'}`"
     )
 
   with col_spy:
@@ -353,20 +340,54 @@ def main():
     )
     st.markdown(f"**Status:** `{dia_status}`")
 
+  if vix_risk_off:
+    st.warning(
+        f"⚠️ **VIX Risk Alert:** VIX is at `{vix_level:.2f}` (above threshold"
+        f" `{vix_thresh}`). Broad equity markets face downside pressure; equity"
+        " exposure should be reduced and capital moved to **Sidelines (Cash)**."
+    )
+
   st.markdown("---")
 
-  # 2. Dynamic Watchlist Audit Table Section
-  st.subheader("2. Watchlist Trend Audit & Signal Evaluation")
+  # 2. Sector & Asset Class Dynamic Scan & Ranking Table
+  st.subheader(
+      "2. Institutional Sector & Asset Class Scan (Relative Momentum Ranking)"
+  )
 
   results = []
-  for ticker in watchlist:
-    mapped_idx = INDEX_MAPPINGS.get(ticker, "SPY")
-    res = evaluate_ticker_with_whipsaw_filters(
-        ticker, prices, volumes, mapped_idx, updated_params
+  for ticker, desc in SECTOR_UNIVERSE.items():
+    res = evaluate_sector_asset(
+        ticker, desc, prices, volumes, updated_params, vix_risk_off
     )
+    # Calculate Relative Momentum (Rate of Change over lookback window)
+    if ticker in prices.columns and len(prices[ticker].dropna()) >= lookback:
+      roc = (
+          (prices[ticker].iloc[-1] - prices[ticker].iloc[-lookback])
+          / prices[ticker].iloc[-lookback]
+      ) * 100.0
+      res["Momentum (%)"] = round(float(roc), 2)
+    else:
+      res["Momentum (%)"] = 0.0
     results.append(res)
 
   df_results = pd.DataFrame(results)
+
+  # Sort by Momentum % descending to highlight leading sectors
+  if "Momentum (%)" in df_results.columns:
+    df_results = df_results.sort_values(by="Momentum (%)", ascending=False)
+
+  # Reorder columns for optimal readability
+  cols = [
+      "Ticker",
+      "Asset / Sector Name",
+      "Price",
+      "20 EMA",
+      "Momentum (%)",
+      "Status",
+      "Action",
+      "Reason",
+  ]
+  df_results = df_results[[c for c in cols if c in df_results.columns]]
 
   # Apply visual styling for status column
   def style_status(val):
@@ -376,6 +397,8 @@ def main():
       return "background-color: #fff3cd; color: #856404; font-weight: bold;"
     elif "SELL" in str(val):
       return "background-color: #f8d7da; color: #721c24; font-weight: bold;"
+    elif "SIDELINES" in str(val):
+      return "background-color: #cce5ff; color: #004085; font-weight: bold;"
     return ""
 
   styled_df = df_results.style.map(style_status, subset=["Status"])
