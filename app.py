@@ -1,594 +1,386 @@
+"""
+Manage Portfolio (MP) - Asset Revesting & Quantitative Trend Audit Dashboard
+--------------------------------------------------------------------------
+Framework: Python 3.11 + Streamlit
+Integrates multi-index benchmarking (SPY, QQQ, DIA), VIX volatility filtering,
+institutional flow whipsaw metrics, and auto-mapping of tickers to benchmarks.
+
+Persistent state is maintained via `config.json`.
+"""
+
 import json
 import os
+import numpy as np
 import pandas as pd
-import requests
 import streamlit as st
 import yfinance as yf
 
-# Page Configuration
-st.set_page_config(page_title="MP Master Hub", page_icon="🏛️", layout="wide")
+CONFIG_FILE = "config.json"
 
-# Purge residual URL query params to keep address bar clean
-st.query_params.clear()
+DEFAULT_CONFIG = {
+    "watchlist": [
+        "SPYI",
+        "QQQI",
+        "SCHD",
+        "JAAA",
+        "JPST",
+        "VOO",
+        "VGT",
+        "NVDA",
+        "META",
+        "AMZN",
+        "MSFT",
+        "AAPL",
+    ],
+    "whipsaw_params": {
+        "rvol_threshold": 1.2,
+        "max_dist_50sma_pct": 8.0,
+        "min_up_down_vol_ratio": 1.1,
+        "sma200_buffer_pct": 1.5,
+        "vix_warning_level": 22.0,
+    },
+}
 
-MASTER_CONFIG_URL = (
-    "https://raw.githubusercontent.com/jboring33/MP/main/config.json"
-)
-README_GUIDE_URL = "https://raw.githubusercontent.com/jboring33/MP/main/README.md"
-CONFIG_PATH = "config.json"
+# Explicit sector/asset class mapping to U.S. Major Indexes
+INDEX_MAPPINGS = {
+    # Tech & Growth -> QQQ
+    "QQQI": "QQQ",
+    "VGT": "QQQ",
+    "NVDA": "QQQ",
+    "META": "QQQ",
+    "AMZN": "QQQ",
+    "MSFT": "QQQ",
+    "AAPL": "QQQ",
+    # Broad Core & Dividend -> SPY
+    "SPYI": "SPY",
+    "VOO": "SPY",
+    "SCHD": "SPY",
+    # Ultra-short / Fixed Income -> SPY (Baseline broad risk engine)
+    "JAAA": "SPY",
+    "JPST": "SPY",
+}
 
 
-@st.cache_data(ttl=60)
 def load_config():
-  if os.path.exists(CONFIG_PATH):
+  """Loads settings from config.json or initializes defaults."""
+  if os.path.exists(CONFIG_FILE):
     try:
-      with open(CONFIG_PATH, "r") as f:
+      with open(CONFIG_FILE, "r") as f:
         return json.load(f)
     except Exception:
-      pass
-  try:
-    response = requests.get(MASTER_CONFIG_URL, timeout=5)
-    if response.status_code == 200:
-      return response.json()
-  except Exception:
-    pass
-  return {
-      "benchmarks": ["SPY", "QQQ", "DIA", "IWM", "EFA", "EMXC"],
-      "benchmark_descriptions": {},
-      "benchmark_mapping": {},
-      "asset_class_thresholds": {},
-      "global_macro_universe": {},
-  }
+      return DEFAULT_CONFIG
+  return DEFAULT_CONFIG
+
+
+def save_config(config_data):
+  """Persists current state to config.json."""
+  with open(CONFIG_FILE, "w") as f:
+    json.dump(config_data, f, indent=4)
 
 
 @st.cache_data(ttl=300)
-def load_readme_guide():
-  try:
-    res = requests.get(README_GUIDE_URL, timeout=3)
-    if res.status_code == 200:
-      return res.text
-  except Exception:
-    pass
-  return "Architecture guide currently unavailable offline."
+def fetch_market_data(tickers):
+  """Downloads 1-year historical price and volume data via yfinance."""
+  all_tickers = list(
+      set(tickers + ["SPY", "QQQ", "DIA", "^VIX", "VOO", "VGT"])
+  )
+  data = yf.download(
+      all_tickers, period="1y", interval="1d", auto_adjust=True, progress=False
+  )
+  if isinstance(data.columns, pd.MultiIndex):
+    close_prices = data["Close"]
+    volumes = data["Volume"]
+  else:
+    close_prices = data[["Close"]]
+    volumes = data[["Volume"]]
+    close_prices.columns = all_tickers
+    volumes.columns = all_tickers
+  return close_prices.dropna(how="all"), volumes.dropna(how="all")
 
 
-config = load_config()
-
-# --- Title & Sidebar Control Center ---
-st.title("🏛️ MP Master Hub")
-st.caption("Institutional Single Source of Truth Portfolio Engine")
-
-st.sidebar.header("🛠️ Control Center & Settings")
-strategy_engine = st.sidebar.selectbox(
-    "Select Strategy Engine",
-    [
-        "💼 Current Portfolio & Rotation Engine",
-        "🛡️ 90% Core ETF Strategy",
-        "🚀 10% Satellite Stock Strategy",
-    ],
-)
-
-st.sidebar.divider()
-
-# --- Collapsible Sidebar: Institutional Criteria & RVOL Profiles ---
-with st.sidebar.expander(
-    "⚙️ Institutional Criteria & RVOL Profiles", expanded=False
+def evaluate_index_status(
+    prices, benchmark_ticker, vix_level, vix_threshold=22.0
 ):
-  asset_profiles = config.get("asset_class_thresholds", {})
-  selected_profile_name = st.selectbox(
-      "Asset Class / Strategy Profile:", list(asset_profiles.keys())
+  """Determines BUY (Green), HOLD (Yellow), or SELL (Red) for major indexes."""
+  if benchmark_ticker not in prices.columns:
+    return "SELL", 0.0, 0.0
+
+  series = prices[benchmark_ticker].dropna()
+  current_price = series.iloc[-1]
+  ema20 = series.ewm(span=20, adjust=False).mean().iloc[-1]
+  sma50 = series.rolling(window=50).mean().iloc[-1]
+
+  # Immediate exit if below 20 EMA or if market volatility spikes severely
+  if current_price < ema20:
+    status = "SELL"
+  elif current_price >= ema20 and current_price >= sma50:
+    status = "BUY" if vix_level < vix_threshold else "HOLD"
+  else:
+    status = "HOLD"
+
+  return status, current_price, ema20
+
+
+def evaluate_ticker_with_whipsaw_filters(
+    ticker, prices, volumes, mapped_index, params
+):
+  """Audits an individual ticker applying 20 EMA rules and institutional flow filters."""
+  if ticker not in prices.columns:
+    return {
+        "Ticker": ticker,
+        "Mapped Index": mapped_index,
+        "Status": "UNKNOWN",
+        "Reason": "No Data",
+    }
+
+  p_series = prices[ticker].dropna()
+  v_series = volumes[ticker].dropna() if ticker in volumes.columns else None
+
+  curr_price = p_series.iloc[-1]
+  ema20 = p_series.ewm(span=20, adjust=False).mean().iloc[-1]
+  sma50 = (
+      p_series.rolling(window=50).mean().iloc[-1]
+      if len(p_series) >= 50
+      else curr_price
   )
-  selected_profile = asset_profiles.get(
-      selected_profile_name, list(asset_profiles.values())[0]
+  sma200 = (
+      p_series.rolling(window=200).mean().iloc[-1]
+      if len(p_series) >= 200
+      else curr_price
   )
 
-  active_rvol = st.slider(
-      "Target RVOL Threshold",
-      min_value=0.40,
-      max_value=2.00,
-      value=float(selected_profile.get("default_rvol", 0.80)),
-      step=0.05,
+  # Core Axiom: Below 20 EMA -> Immediate SELL
+  if curr_price < ema20:
+    return {
+        "Ticker": ticker,
+        "Mapped Index": mapped_index,
+        "Price": f"${curr_price:.2f}",
+        "20 EMA": f"${ema20:.2f}",
+        "Status": "SELL 🔴",
+        "Action": "Exit Position / Avoid Entry",
+        "Reason": "Price below 20 EMA filter",
+    }
+
+  # Whipsaw & Institutional Flow Checks
+  reasons = []
+  is_hold = False
+
+  # 1. 200-Day SMA Buffer Check
+  if curr_price < sma200 * (1 + params["sma200_buffer_pct"] / 100.0):
+    is_hold = True
+    reasons.append("Below 200 SMA buffer limit")
+
+  # 2. Overextended Check (Max Distance from 50 SMA)
+  dist_from_50 = ((curr_price - sma50) / sma50) * 100.0
+  if dist_from_50 > params["max_dist_50sma_pct"]:
+    is_hold = True
+    reasons.append(f"Overextended ({dist_from_50:.1f}% from 50 SMA)")
+
+  # 3. Volume Filters (if volume data is available)
+  if v_series is not None and len(v_series) >= 20:
+    recent_vol = v_series.iloc[-1]
+    vol_20_avg = v_series.tail(20).mean()
+    rvol = recent_vol / vol_20_avg if vol_20_avg > 0 else 1.0
+
+    if rvol < params["rvol_threshold"]:
+      is_hold = True
+      reasons.append(f"Low RVOL ({rvol:.2f}x < {params['rvol_threshold']}x)")
+
+    # Up/Down Volume Ratio (20-day approximation)
+    returns = p_series.pct_change().tail(20)
+    vols = v_series.tail(20)
+    up_vol = vols[returns > 0].sum()
+    down_vol = vols[returns < 0].sum()
+    up_down_ratio = up_vol / down_vol if down_vol > 0 else 1.0
+
+    if up_down_ratio < params["min_up_down_vol_ratio"]:
+      is_hold = True
+      reasons.append(
+          f"Weak Up/Down Vol Ratio ({up_down_ratio:.2f} <"
+          f" {params['min_up_down_vol_ratio']})"
+      )
+
+  if is_hold:
+    status_label = "HOLD 🟡"
+    action = "Caution / Await Volume Confirmation"
+    reason_str = "; ".join(reasons)
+  else:
+    status_label = "BUY 🟢"
+    action = "Strong Technical Trend Active"
+    reason_str = "All Trend & Flow Criteria Satisfied"
+
+  return {
+      "Ticker": ticker,
+      "Mapped Index": mapped_index,
+      "Price": f"${curr_price:.2f}",
+      "20 EMA": f"${ema20:.2f}",
+      "Status": status_label,
+      "Action": action,
+      "Reason": reason_str,
+  }
+
+
+# -------------------------------------------------------------------------
+# Streamlit Interface Implementation
+# -------------------------------------------------------------------------
+def main():
+  st.set_page_config(
+      page_title="Manage Portfolio (MP)", layout="wide"
   )
-  max_dist_sma = st.slider(
+  st.title("📈 Manage Portfolio (MP) — Trend & Asset Revesting Dashboard")
+
+  # Load State Configuration
+  config = load_config()
+  watchlist = config.get("watchlist", DEFAULT_CONFIG["watchlist"])
+  w_params = config.get("whipsaw_params", DEFAULT_CONFIG["whipsaw_params"])
+
+  # Sidebar: Watchlist Management & Whipsaw Controls
+  st.sidebar.header("📋 Watchlist Configuration")
+  new_ticker = (
+      st.sidebar.text_input("Add Ticker to Watchlist:")
+      .strip()
+      .upper()
+  )
+  if st.sidebar.button("Add Ticker"):
+    if new_ticker and new_ticker not in watchlist:
+      watchlist.append(new_ticker)
+      config["watchlist"] = watchlist
+      save_config(config)
+      st.sidebar.success(f"Added {new_ticker}")
+      st.rerun()
+
+  ticker_to_remove = st.sidebar.selectbox(
+      "Remove Ticker:", options=["None"] + watchlist
+  )
+  if st.sidebar.button("Remove Selected") and ticker_to_remove != "None":
+    watchlist.remove(ticker_to_remove)
+    config["watchlist"] = watchlist
+    save_config(config)
+    st.sidebar.warning(f"Removed {ticker_to_remove}")
+    st.rerun()
+
+  st.sidebar.markdown("---")
+  st.sidebar.header("⚙️ Institutional Flow Thresholds")
+  rvol_thresh = st.sidebar.slider(
+      "Min RVOL Threshold", 0.8, 3.0, float(w_params["rvol_threshold"]), 0.1
+  )
+  max_dist = st.sidebar.slider(
       "Max Dist from 50 SMA (%)",
-      min_value=0.005,
-      max_value=0.100,
-      value=float(selected_profile.get("max_dist_from_50sma_pct", 0.04)),
-      step=0.005,
-      format="%.3f",
+      3.0,
+      20.0,
+      float(w_params["max_dist_50sma_pct"]),
+      0.5,
   )
-  min_ud_vol = st.slider(
-      "Min Up/Down Volume Ratio",
-      min_value=1.00,
-      max_value=2.00,
-      value=float(selected_profile.get("min_ud_vol_ratio", 1.15)),
-      step=0.05,
+  min_ratio = st.sidebar.slider(
+      "Min Up/Down Vol Ratio",
+      0.8,
+      2.5,
+      float(w_params["min_up_down_vol_ratio"]),
+      0.1,
   )
-  buffer_pct = st.slider(
-      "200-Day Buffer (%)",
-      min_value=0.000,
-      max_value=0.050,
-      value=float(selected_profile.get("default_buffer_pct", 0.02)),
-      step=0.005,
-      format="%.3f",
+  vix_thresh = st.sidebar.slider(
+      "VIX Warning Level",
+      15.0,
+      40.0,
+      float(w_params["vix_warning_level"]),
+      1.0,
   )
 
-st.sidebar.divider()
+  # Update configuration if sidebar parameters changed
+  updated_params = {
+      "rvol_threshold": rvol_thresh,
+      "max_dist_50sma_pct": max_dist,
+      "min_up_down_vol_ratio": min_ratio,
+      "sma200_buffer_pct": float(w_params.get("sma200_buffer_pct", 1.5)),
+      "vix_warning_level": vix_thresh,
+  }
+  if updated_params != w_params:
+    config["whipsaw_params"] = updated_params
+    save_config(config)
 
-# --- Collapsible Sidebar: Active Mappings ---
-with st.sidebar.expander("🔍 Active Mappings & Descriptions", expanded=False):
-  benchmark_mapping = config.get("benchmark_mapping", {})
-  bench_descriptions = config.get("benchmark_descriptions", {})
+  # Download Market Data
+  prices, volumes = fetch_market_data(watchlist)
 
-  if benchmark_mapping:
-    for ticker, details in benchmark_mapping.items():
-      if isinstance(details, dict):
-        bench = details.get("benchmark", "SPY")
-        t_desc = details.get("description", "")
-        asset_cls = details.get("asset_class", "Core")
-      else:
-        bench = details
-        t_desc = ""
-        asset_cls = "Core"
-
-      b_desc = bench_descriptions.get(bench, f"{bench} Core Benchmark Index")
-
-      with st.expander(f"{ticker} ➔ {bench} ({asset_cls})"):
-        st.markdown(f"**Ticker Desc:** {t_desc}")
-        st.markdown(f"**Benchmark:** {bench}")
-        st.markdown(f"**Benchmark Desc:** {b_desc}")
-  else:
-    st.info("No custom benchmark mappings found in config.")
-
-# --- Built-in Mapping & Index Guidance Expander ---
-with st.sidebar.expander("💡 Benchmark Selection & Mapping Guide"):
-  st.markdown("""
-    When evaluating a ticker's long description (e.g., tracking an MSCI or FTSE index), use these mapping rules:
-    * **US Large Cap / Broad Market (S&P/Russell):** Map to **`SPY`**
-    * **US Tech & Growth (Nasdaq):** Map to **`QQQ`**
-    * **US Value / Industrial / Dividends (Dow Jones):** Map to **`DIA`**
-    * **US Small Cap (Russell 2000):** Map to **`IWM`**
-    * **Developed International / Europe / Japan (MSCI EAFE / FTSE Developed):** Map to **`EFA`**
-    * **Emerging Markets ex-China / India (MSCI/FTSE Ex-China):** Map to **`EMXC`**
-    """)
-
-# --- Dynamic README Guide Loader ---
-with st.sidebar.expander("📖 System Architecture & Guide", expanded=False):
-  st.markdown(load_readme_guide())
-
-
-# --- Helper: Resolve Benchmark & Dual Description for Ticker ---
-def get_resolved_benchmark_info(ticker):
-  t = ticker.upper().strip()
-  b_map = config.get("benchmark_mapping", {})
-  b_desc_map = config.get("benchmark_descriptions", {})
-
-  if t in b_map:
-    info = b_map[t]
-    if isinstance(info, dict):
-      bench = info.get("benchmark", "SPY")
-      t_desc = info.get("description", "")
-    else:
-      bench = info
-      t_desc = ""
-    b_desc = b_desc_map.get(bench, f"{bench} Benchmark")
-    return bench, t_desc, b_desc
-
-  if t == "INDA":
-    return (
-        "EMXC",
-        "iShares MSCI India ETF",
-        b_desc_map.get("EMXC", "Emerging Markets ex China"),
-    )
-  if t in ["EWJ", "VGK"]:
-    return (
-        "EFA",
-        "International Developed ETF",
-        b_desc_map.get("EFA", "Developed International"),
-    )
-
-  return "SPY", f"{t} Asset", b_desc_map.get("SPY", "SPDR S&P 500 ETF")
-
-
-# --- Benchmark Regime Helper ---
-def get_benchmark_regime(ticker_symbol):
-  bench, _, _ = get_resolved_benchmark_info(ticker_symbol)
-  if not bench:
-    return "🟢 STANDALONE ASSET", f"({ticker_symbol} Evaluated on Own SMAs)"
-  try:
-    df = yf.download(
-        bench, period="1y", interval="1d", auto_adjust=True, progress=False
-    )
-    if df.empty:
-      return "🟢 FULL RISK-ON", f"{bench} Healthy"
-    c = df["Close"].squeeze()
-    price = float(c.iloc[-1])
-    sma50 = float(c.rolling(50).mean().iloc[-1])
-    sma200 = float(c.rolling(200).mean().iloc[-1])
-
-    if price > sma200 and price > sma50:
-      return "🟢 FULL RISK-ON", f"({bench} > 50 & 200 SMA)"
-    elif price > sma200 and price <= sma50:
-      return (
-          "🟡 PULLBACK / CAUTION",
-          f"({bench} broke below 50 SMA - Trim 50% to JAAA/JPST)",
-      )
-    else:
-      return (
-          "🔴 BEAR / RISK-OFF",
-          f"({bench} < 200 SMA - Rotate 100% to SCYB/JAAA/JPST)",
-      )
-  except Exception:
-    return "🟢 FULL RISK-ON", "Default"
-
-
-# ==========================================
-# 1. CURRENT PORTFOLIO & ROTATION ENGINE
-# ==========================================
-if strategy_engine == "💼 Current Portfolio & Rotation Engine":
-  st.header("💼 Current Portfolio Holdings & Action Engine")
-  st.markdown(
-      "Persistent evaluation of your active holdings (ETFs & stocks) delivering"
-      " precise **BUY, SELL, or HOLD** recommendations."
+  # VIX Volatility Section
+  vix_level = (
+      prices["^VIX"].iloc[-1] if "^VIX" in prices.columns else 15.0
   )
 
-  # Stage 1: Persistent & Editable List of Current Holdings
-  default_holdings = "JAAA, JPST, SCHD, SPYI, QQQI"
-  curr_input = st.text_area(
-      "Stage 1: Persistent Portfolio Watchlist (Comma Separated):",
-      value=default_holdings,
-      height=75,
+  # 1. Macro Environment Gauges Section
+  st.subheader("1. U.S. Macro Environment Gauges")
+  col_vix, col_spy, col_qqq, col_dia = st.columns(4)
+
+  spy_status, spy_p, spy_e = evaluate_index_status(
+      prices, "SPY", vix_level, vix_thresh
+  )
+  qqq_status, qqq_p, qqq_e = evaluate_index_status(
+      prices, "QQQ", vix_level, vix_thresh
+  )
+  dia_status, dia_p, dia_e = evaluate_index_status(
+      prices, "DIA", vix_level, vix_thresh
   )
 
-  if curr_input.strip():
-    holdings = [t.strip().upper() for t in curr_input.split(",") if t.strip()]
-
-    st.subheader(
-        "Stage 2 & 3: Technical Health, Regime Diagnostics & Action Recommendations"
-    )
-    if st.button("Evaluate Portfolio Actions", type="primary"):
-      portfolio_results = []
-      for t in holdings:
-        try:
-          df = yf.download(
-              t, period="1y", interval="1d", auto_adjust=True, progress=False
-          )
-          if df.empty:
-            continue
-          c = df["Close"].squeeze()
-          vol = df["Volume"].squeeze()
-          price = float(c.iloc[-1])
-          sma50 = float(c.rolling(50).mean().iloc[-1])
-          sma200 = float(c.rolling(200).mean().iloc[-1])
-          dist_200 = ((price - sma200) / sma200) * 100
-
-          avg_vol = float(vol.rolling(20).mean().iloc[-1])
-          cur_vol = float(vol.iloc[-1])
-          rvol = cur_vol / avg_vol if avg_vol > 0 else 1.0
-
-          bench, t_desc, b_desc = get_resolved_benchmark_info(t)
-          regime, guidance = get_benchmark_regime(t)
-
-          # Action recommendation logic
-          if price >= sma200 and rvol >= active_rvol:
-            action = "🟢 BUY / ACCUMULATE"
-            reason = (
-                f"Price (${price:.2f}) is above 200 SMA and RVOL ({rvol:.2f})"
-                " confirms institutional accumulation."
-            )
-          elif price < sma200:
-            action = "🔴 SELL / ROTATE"
-            reason = (
-                f"Price (${price:.2f}) breached 200-day trend support. Risk-off"
-                " rotation recommended."
-            )
-          elif price < sma50:
-            action = "🟡 HOLD / TRIM"
-            reason = (
-                f"Price (${price:.2f}) pulled back below 50 SMA. Monitor trend"
-                " support."
-            )
-          else:
-            action = "🟢 HOLD"
-            reason = (
-                f"Technical structure stable above key moving averages."
-                f" {guidance}"
-            )
-
-          portfolio_results.append({
-              "Ticker": t,
-              "Description": t_desc,
-              "Price": round(price, 2),
-              "Action": action,
-              "Reason Why": reason,
-              "Benchmark": bench,
-              "RVOL": round(rvol, 2),
-          })
-        except Exception as e:
-          st.error(f"Error evaluating {t}: {e}")
-
-      if portfolio_results:
-        st.dataframe(
-            pd.DataFrame(portfolio_results),
-            use_container_width=True,
-            hide_index=True,
-        )
-  else:
-    st.info("Please enter your portfolio holdings above.")
-
-# ==========================================
-# 2. 90% CORE ETF STRATEGY
-# ==========================================
-elif strategy_engine == "🛡️ 90% Core ETF Strategy":
-  st.header("🛡️ 90% Core ETF Allocation Workflow")
-
-  core_tab1, core_tab2, core_tab3 = st.tabs([
-      "Stage 1: Core ETF Watchlist",
-      "Stage 2: Intrinsic Value & Dip Filter",
-      "Stage 3: 200-Day Trend Triggers",
-  ])
-
-  with core_tab1:
-    st.subheader("Stage 1: Persistent Core ETF Watchlist & Mapping Audit")
-    default_core = "SCHD, SPYI, QQQI, JAAA, JPST"
-    core_input = st.text_area(
-        "Edit Core ETF Watchlist (Comma Separated):",
-        value=default_core,
-        height=75,
+  with col_vix:
+    vix_color = "off" if vix_level < vix_thresh else "inverse"
+    st.metric(
+        label="CBOE Volatility Index (^VIX)",
+        value=f"{vix_level:.2f}",
+        delta="NORMAL" if vix_level < vix_thresh else "HIGH VOLATILITY",
+        delta_color=vix_color,
     )
 
-    core_tickers = [
-        t.strip().upper() for t in core_input.split(",") if t.strip()
-    ]
-
-    # Explicit Mapping Alert Check
-    b_map = config.get("benchmark_mapping", {})
-    benchmarks_list = config.get("benchmarks", [])
-    unmapped_core = [
-        t
-        for t in core_tickers
-        if t not in b_map and t not in benchmarks_list
-    ]
-
-    if unmapped_core:
-      st.error(
-          f"🚨 **Unmapped Tickers Detected:** {', '.join(unmapped_core)}. Please"
-          " add them to `benchmark_mapping` in your `config.json` file!"
-      )
-    else:
-      st.success(
-          "✅ All Stage 1 Core ETFs are successfully mapped against active"
-          " benchmark proxies."
-      )
-
-    st.markdown("Verified tickers automatically pass down to Stages 2 and 3.")
-
-  with core_tab2:
-    st.subheader(
-        "Stage 2: Intrinsic Value & Institutional Dip Filter (Passed from Stage"
-        " 1)"
+  with col_spy:
+    st.metric(
+        label="S&P 500 (SPY)",
+        value=f"${spy_p:.2f}",
+        delta=f"20 EMA: ${spy_e:.2f}",
     )
-    if core_tickers:
-      if st.button("Run Intrinsic Valuation & Dip Check", type="primary"):
-        iv_results = []
-        for t in core_tickers:
-          try:
-            df = yf.download(
-                t, period="1y", interval="1d", auto_adjust=True, progress=False
-            )
-            if df.empty:
-              continue
-            c = df["Close"].squeeze()
-            vol = df["Volume"].squeeze()
-            p = float(c.iloc[-1])
-            sma50 = float(c.rolling(50).mean().iloc[-1])
-            sma200 = (
-                float(c.rolling(200).mean().iloc[-1])
-                if len(c) >= 200
-                else p
-            )
+    st.markdown(f"**Status:** `{spy_status}`")
 
-            avg_vol = float(vol.rolling(20).mean().iloc[-1])
-            rvol = float(vol.iloc[-1]) / avg_vol if avg_vol > 0 else 1.0
-            dist_50 = (p - sma50) / sma50
-
-            val_status = (
-                "Accumulate / Fair Value"
-                if p >= (sma200 * (1.0 - buffer_pct))
-                and abs(dist_50) <= max_dist_sma
-                else (
-                    "Deep Value / Discount"
-                    if p < (sma200 * (1.0 - buffer_pct))
-                    else "Extended / Caution"
-                )
-            )
-
-            bench, t_desc, _ = get_resolved_benchmark_info(t)
-
-            iv_results.append({
-                "Ticker": t,
-                "Description": t_desc,
-                "Price": round(p, 2),
-                "50 SMA": round(sma50, 2),
-                "200 SMA Buffer": round(sma200 * (1.0 - buffer_pct), 2),
-                "RVOL": round(rvol, 2),
-                "Benchmark": bench,
-                "Valuation & Dip Status": val_status,
-            })
-          except Exception:
-            pass
-        if iv_results:
-          st.dataframe(
-              pd.DataFrame(iv_results), use_container_width=True, hide_index=True
-          )
-    else:
-      st.warning("Please configure your tickers in Stage 1.")
-
-  with core_tab3:
-    st.subheader(
-        "Stage 3: 200-Day Macro Trend Triggers (Passed from Stage 1)"
+  with col_qqq:
+    st.metric(
+        label="Nasdaq 100 (QQQ)",
+        value=f"${qqq_p:.2f}",
+        delta=f"20 EMA: ${qqq_e:.2f}",
     )
-    if core_tickers:
-      if st.button("Run Trend Trigger Audit", type="primary"):
-        trigger_rows = []
-        for t in core_tickers:
-          try:
-            df = yf.download(
-                t, period="1y", interval="1d", auto_adjust=True, progress=False
-            )
-            if df.empty:
-              continue
-            c = df["Close"].squeeze()
-            price = float(c.iloc[-1])
-            sma50 = float(c.rolling(50).mean().iloc[-1])
-            sma200 = float(c.rolling(200).mean().iloc[-1])
-            status = (
-                "🟢 Bullish (Above MAs)"
-                if price > sma200 and price > sma50
-                else (
-                    "🟡 Pullback (Below 50 SMA)"
-                    if price > sma200
-                    else "🔴 Bear Trend"
-                )
-            )
-            trigger_rows.append(
-                {"Ticker": t, "Price": round(price, 2), "Trend Status": status}
-            )
-          except Exception:
-            pass
-        if trigger_rows:
-          st.dataframe(
-              pd.DataFrame(trigger_rows),
-              use_container_width=True,
-              hide_index=True,
-          )
-    else:
-      st.warning("Please configure your tickers in Stage 1.")
+    st.markdown(f"**Status:** `{qqq_status}`")
 
-# ==========================================
-# 3. 10% SATELLITE STOCK STRATEGY (SWING TRADE STOCKS)
-# ==========================================
-elif strategy_engine == "🚀 10% Satellite Stock Strategy":
-  st.header("🚀 10% Satellite Stock Strategy: Swing Trade Stocks")
-
-  sat_tab1, sat_tab2, sat_tab3 = st.tabs([
-      "Stage 1: Satellite Stock Watchlist",
-      "Stage 2: Institutional Accumulation & Dip Evaluation",
-      "Stage 3: STP Dynamic Rotation (50 SMA & 20 EMA)",
-  ])
-
-  with sat_tab1:
-    st.subheader("Stage 1: Persistent Satellite Equity Watchlist")
-    default_sat = "NVDA, META, AMZN, MSFT, AAPL"
-    sat_input = st.text_area(
-        "Edit Satellite Stock Watchlist (Comma Separated):",
-        value=default_sat,
-        height=75,
+  with col_dia:
+    st.metric(
+        label="Dow Jones (DIA)",
+        value=f"${dia_p:.2f}",
+        delta=f"20 EMA: ${dia_e:.2f}",
     )
-    sat_tickers = [
-        t.strip().upper() for t in sat_input.split(",") if t.strip()
-    ]
-    st.success(
-        f"Loaded {len(sat_tickers)} active satellite stocks. Passed to Stages 2"
-        " and 3."
+    st.markdown(f"**Status:** `{dia_status}`")
+
+  st.markdown("---")
+
+  # 2. Dynamic Watchlist Audit Table Section
+  st.subheader("2. Watchlist Trend Audit & Signal Evaluation")
+
+  results = []
+  for ticker in watchlist:
+    mapped_idx = INDEX_MAPPINGS.get(ticker, "SPY")
+    res = evaluate_ticker_with_whipsaw_filters(
+        ticker, prices, volumes, mapped_idx, updated_params
     )
+    results.append(res)
 
-  with sat_tab2:
-    st.subheader(
-        "Stage 2: Institutional Accumulation / Distribution & Dip Evaluation"
-    )
-    if sat_tickers:
-      if st.button(
-          "Run Institutional Dip & Accumulation Evaluation", type="primary"
-      ):
-        eval_rows = []
-        for t in sat_tickers:
-          try:
-            df = yf.download(
-                t, period="1y", interval="1d", auto_adjust=True, progress=False
-            )
-            if df.empty:
-              continue
-            c = df["Close"].squeeze()
-            vol = df["Volume"].squeeze()
-            price = float(c.iloc[-1])
-            sma50 = float(c.rolling(50).mean().iloc[-1])
-            sma200 = float(c.rolling(200).mean().iloc[-1])
-            dist_50 = ((price - sma50) / sma50) * 100
+  df_results = pd.DataFrame(results)
 
-            avg_vol = float(vol.rolling(20).mean().iloc[-1])
-            cur_vol = float(vol.iloc[-1])
-            rvol = cur_vol / avg_vol if avg_vol > 0 else 1.0
+  # Apply visual styling for status column
+  def style_status(val):
+    if "BUY" in str(val):
+      return "background-color: #d4edda; color: #155724; font-weight: bold;"
+    elif "HOLD" in str(val):
+      return "background-color: #fff3cd; color: #856404; font-weight: bold;"
+    elif "SELL" in str(val):
+      return "background-color: #f8d7da; color: #721c24; font-weight: bold;"
+    return ""
 
-            flow_status = (
-                "🟢 Institutional Accumulation (RVOL > Target & Healthy Dip)"
-                if rvol >= active_rvol and price >= sma200
-                else (
-                    "🔴 Distribution / Risk (Low Volume / Falling Knife Risk)"
-                    if rvol < active_rvol
-                    else "🟡 Neutral / Watch"
-                )
-            )
+  styled_df = df_results.style.map(style_status, subset=["Status"])
+  st.dataframe(styled_df, use_container_width=True)
 
-            eval_rows.append({
-                "Ticker": t,
-                "Price": round(price, 2),
-                "RVOL": round(rvol, 2),
-                "50 SMA Distance": f"{dist_50:+.2f}%",
-                "Institutional Flow Status": flow_status,
-            })
-          except Exception as e:
-            st.error(f"Error evaluating {t}: {e}")
-        if eval_rows:
-          st.dataframe(
-              pd.DataFrame(eval_rows), use_container_width=True, hide_index=True
-          )
-    else:
-      st.warning("Please configure your watchlist in Stage 1.")
 
-  with sat_tab3:
-    st.subheader(
-        "Stage 3: STP Swing Trade Portfolio Dynamic Rotation (50 SMA & 20 EMA)"
-    )
-    st.markdown(
-        "_Ready for upcoming Swing Trade Portfolio (STP) module integration._"
-    )
-    if sat_tickers:
-      if st.button("Run STP Dynamic Rotation Check", type="primary"):
-        stp_rows = []
-        for t in sat_tickers:
-          try:
-            df = yf.download(
-                t, period="6mo", interval="1d", auto_adjust=True, progress=False
-            )
-            if df.empty:
-              continue
-            c = df["Close"].squeeze()
-            price = float(c.iloc[-1])
-            ema20 = float(c.ewm(span=20, adjust=False).mean().iloc[-1])
-            sma50 = float(c.rolling(50).mean().iloc[-1])
-
-            signal = (
-                "🟢 BULLISH CROSS (Price > 20 EMA > 50 SMA)"
-                if price > ema20 and ema20 > sma50
-                else (
-                    "🟡 CAUTION / PULLBACK"
-                    if price > sma50
-                    else "🔴 BEARISH / EXIT"
-                )
-            )
-            stp_rows.append({
-                "Ticker": t,
-                "Price": round(price, 2),
-                "20 EMA": round(ema20, 2),
-                "50 SMA": round(sma50, 2),
-                "STP Signal": signal,
-            })
-          except Exception:
-            pass
-        if stp_rows:
-          st.dataframe(
-              pd.DataFrame(stp_rows), use_container_width=True, hide_index=True
-          )
-    else:
-      st.warning("Please configure your watchlist in Stage 1.")
+if __name__ == "__main__":
+  main()
